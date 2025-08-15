@@ -29,8 +29,8 @@ This tool fixes missing EXIF timestamps from photos and videos exported from Goo
 ## Usage
 
 ```
-Usage: exifupdater [options] [directory]
-  directory  The root directory to scan for JSON files (default: current directory)
+Usage: exifupdater [options] <directory>
+  directory  The root directory to scan for JSON files (required)
 
 Options:
   -keep-json    Keep JSON files after processing (don't delete them)
@@ -38,12 +38,12 @@ Options:
 
 ### Examples
 
-Process files in the current directory and delete JSON files after processing:
+Process files in a specific directory and delete JSON files after processing:
 ```bash
-./exifupdater
+./exifupdater /path/to/photos
 ```
 
-Process files in a specific directory and keep JSON files:
+Process files and keep JSON files:
 ```bash
 ./exifupdater -keep-json /path/to/photos
 ```
