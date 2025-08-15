@@ -13,6 +13,14 @@ This tool fixes missing EXIF timestamps from photos and videos exported from Goo
 - Go 1.16 or later
 - [exiftool](https://github.com/exiftool/exiftool) (must be installed and available in system PATH)
 
+## Run Remotely
+
+You can build and run this tool directly off this repository with:
+
+```
+go run github.com/bryanbrunetti/exifupdater@latest
+```
+
 ## Installation
 
 1. Clone this repository:
