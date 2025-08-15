@@ -67,3 +67,42 @@ The tool handles various filename variations including:
 - Files that can't be processed are logged with appropriate error messages
 - The tool continues processing other files if an error occurs
 - Detailed logs are printed to help diagnose any issues
+
+## Testing
+
+The project includes a comprehensive test suite to ensure reliability. To run the tests:
+
+```bash
+# Run all tests
+make test
+# or
+go test -v
+
+# Run a specific test
+make test TEST=TestNewExifTool
+# or
+go test -v -run TestNewExifTool
+```
+
+### Test Coverage
+
+To generate a coverage report:
+
+```bash
+make cover
+# or
+go test -coverprofile=coverage.out && go tool cover -html=coverage.out
+```
+
+### Test Structure
+
+- `TestNewExifTool`: Verifies the ExifTool instance is created with the correct arguments
+- `TestExifTool_Execute`: Tests command execution against exiftool
+- `TestPhotoMetadata_Unmarshal`: Tests JSON parsing of photo metadata
+- `TestFindFileWithFallbacks`: Tests the file finding logic with various edge cases
+- `TestCheckTruncatedName`: Tests the filename truncation logic
+
+### Test Dependencies
+
+- Tests require `exiftool` to be installed and available in the system PATH
+- The test suite will be skipped if exiftool is not found

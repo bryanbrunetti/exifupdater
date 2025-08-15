@@ -35,20 +35,38 @@ type ExifTool struct {
 
 // NewExifTool starts an exiftool process in stay-open mode.
 func NewExifTool() (*ExifTool, error) {
-	cmd := exec.Command("exiftool", "-stay_open", "True", "-@")
+	// Use "-" as the argument to -@ to read from stdin
+	cmd := exec.Command("exiftool", "-stay_open", "True", "-@", "-")
+	log.Printf("Starting exiftool with args: %v", cmd.Args)
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("stdin pipe: %v", err)
 	}
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("stdout pipe: %v", err)
 	}
 
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return nil, fmt.Errorf("stderr pipe: %v", err)
+	}
+
+	// Start reading stderr in a goroutine
+	go func() {
+		scanner := bufio.NewScanner(stderr)
+		for scanner.Scan() {
+			log.Printf("exiftool stderr: %s", scanner.Text())
+		}
+		if err := scanner.Err(); err != nil {
+			log.Printf("Error reading stderr: %v", err)
+		}
+	}()
+
 	if err := cmd.Start(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("starting command: %v", err)
 	}
 
 	return &ExifTool{
@@ -60,22 +78,25 @@ func NewExifTool() (*ExifTool, error) {
 
 // Execute sends a command to the running exiftool process.
 func (et *ExifTool) Execute(args ...string) (string, error) {
+	log.Printf("Executing exiftool with args: %v", args)
 	// Write arguments to the process, one per line.
 	for _, arg := range args {
+		log.Printf("Sending arg: %q", arg)
 		if _, err := fmt.Fprintln(et.stdin, arg); err != nil {
-			return "", err
+			return "", fmt.Errorf("writing arg %q: %v", arg, err)
 		}
 	}
 
 	// Tell exiftool to execute the command.
 	if _, err := fmt.Fprintln(et.stdin, "-execute"); err != nil {
-		return "", err
+		return "", fmt.Errorf("writing execute command: %v", err)
 	}
 
 	// Read the output until the {ready} signal.
 	var output strings.Builder
 	for et.stdout.Scan() {
 		line := et.stdout.Text()
+		log.Printf("Read line: %q", line)
 		if strings.HasPrefix(line, "{ready}") {
 			break
 		}
@@ -84,10 +105,12 @@ func (et *ExifTool) Execute(args ...string) (string, error) {
 	}
 
 	if err := et.stdout.Err(); err != nil {
-		return "", err
+		return "", fmt.Errorf("reading output: %v", err)
 	}
 
-	return output.String(), nil
+	result := output.String()
+	log.Printf("Command result: %q", result)
+	return result, nil
 }
 
 // Close gracefully shuts down the exiftool process.
