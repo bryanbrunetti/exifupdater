@@ -35,7 +35,7 @@ type ExifTool struct {
 
 // NewExifTool starts an exiftool process in stay-open mode.
 func NewExifTool() (*ExifTool, error) {
-	cmd := exec.Command("exiftool", "-stay_open", "True", "-@", "-")
+	cmd := exec.Command("exiftool", "-stay_open", "True", "-@")
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -192,18 +192,19 @@ func main() {
 	keepJSON := flag.Bool("keep-json", false, "Keep JSON files after processing (don't delete them)")
 
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: %s [options] [directory]\n", filepath.Base(os.Args[0]))
-		fmt.Fprintf(os.Stderr, "  directory  The root directory to scan for JSON files (default: current directory)\n")
+		fmt.Fprintf(os.Stderr, "Usage: %s [options] <directory>\n", filepath.Base(os.Args[0]))
+		fmt.Fprintf(os.Stderr, "  directory  The root directory to scan for JSON files\n")
 		fmt.Fprintf(os.Stderr, "\nOptions:\n")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
 
-	dir := "."
-	if flag.NArg() > 0 {
-		dir = flag.Arg(0)
+	if flag.NArg() == 0 {
+		flag.Usage()
+		log.Fatal("Error: No directory specified")
 	}
 
+	dir := flag.Arg(0)
 	info, err := os.Stat(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
