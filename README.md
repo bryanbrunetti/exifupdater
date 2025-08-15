@@ -1,5 +1,5 @@
 # EXIF Timestamp Updater
-This tool fixes missing EXIF timestamps from photos and videos from Google Takeout.
+This tool fixes missing EXIF timestamps from photos and videos exported from Google Photos via Takeout.
 
 ## Features
 - Processes multiple image files in parallel using worker goroutines
@@ -50,8 +50,8 @@ Process files in a specific directory and keep JSON files:
 
 ## How It Works
 
-1. The tool scans the specified directory (or current directory) for `.json` files
-2. For each JSON file found, it looks for a corresponding image file with the same name (but different extension)
+1. The tool scans the specified directory (or current directory) for `.json` file containing metadata from Google Takeout
+2. For each JSON file found, it looks for the corresponding image file
 3. It reads the timestamp from the JSON file
 4. Updates the EXIF data of the matching image file using exiftool
 5. Optionally deletes the JSON file after successful processing
