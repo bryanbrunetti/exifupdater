@@ -1,9 +1,7 @@
 # EXIF Timestamp Updater
-
-A command-line utility that updates EXIF timestamps in image files based on metadata from corresponding JSON files. This tool is particularly useful for restoring original photo timestamps from Google Takeout data.
+This tool fixes missing EXIF timestamps from photos and videos from Google Takeout.
 
 ## Features
-
 - Processes multiple image files in parallel using worker goroutines
 - Handles various filename variations and edge cases
 - Supports different image formats through exiftool
