@@ -11,13 +11,13 @@ This tool fixes missing EXIF timestamps from photos and videos exported from Goo
 ## Prerequisites
 
 - Go 1.16 or later
-- exiftool (must be installed and available in system PATH)
+- [exiftool](https://github.com/exiftool/exiftool) (must be installed and available in system PATH)
 
 ## Installation
 
 1. Clone this repository:
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/bryanbrunetti/exifupdater.git
    cd ExifUpdater
    ```
 
