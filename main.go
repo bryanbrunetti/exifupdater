@@ -274,14 +274,33 @@ func copyFile(src, dest string) error {
 // createSymlink creates a symbolic link
 func createSymlink(oldname, newname string, dryRun bool) error {
 	if dryRun {
-		log.Printf("[DRY RUN] Would create symlink: %s -> %s", newname, oldname)
+		// Check if symlink already exists in dry run mode
+		if linkInfo, err := os.Lstat(newname); err == nil {
+			if linkInfo.Mode()&os.ModeSymlink != 0 {
+				if target, err := os.Readlink(newname); err == nil && target == oldname {
+					log.Printf("[DRY RUN] Symlink already exists and is correct: %s -> %s", newname, oldname)
+					return nil
+				}
+			}
+			log.Printf("[DRY RUN] Would replace existing file/symlink: %s -> %s", newname, oldname)
+		} else {
+			log.Printf("[DRY RUN] Would create symlink: %s -> %s", newname, oldname)
+		}
 		return nil
 	}
 
-	// Remove existing symlink if it exists
-	if _, err := os.Lstat(newname); err == nil {
+	// Check if symlink already exists and points to the correct target
+	if linkInfo, err := os.Lstat(newname); err == nil {
+		if linkInfo.Mode()&os.ModeSymlink != 0 {
+			// It's a symlink, check if it points to the right place
+			if target, err := os.Readlink(newname); err == nil && target == oldname {
+				// Symlink already exists and points to the correct target
+				return nil
+			}
+		}
+		// Remove existing file/symlink if it exists but doesn't point to the right place
 		if err := os.Remove(newname); err != nil {
-			return fmt.Errorf("removing existing symlink %s: %v", newname, err)
+			return fmt.Errorf("removing existing file/symlink %s: %v", newname, err)
 		}
 	}
 
@@ -453,37 +472,42 @@ func worker(id int, wg *sync.WaitGroup, jobs <-chan string, keepJSON, keepFiles 
 		destPath := filepath.Join(allPhotosPath, filename)
 
 		// Check if file already exists at destination
-		if !*dryRun {
-			if _, err := os.Stat(destPath); err == nil {
-				log.Printf("Worker %d: File already exists at destination %s, skipping", id, destPath)
-				continue
-			}
-		}
-
-		// --- 4. Update EXIF data ---
-		if !*dryRun {
-			t := time.Unix(timestamp, 0)
-			formattedTime := t.Format("2006:01:02 15:04:05")
-			dateTimeArg := fmt.Sprintf("-CreateDate=%s -DateTimeOriginal=%s", formattedTime, formattedTime)
-
-			log.Printf("Worker %d: Updating EXIF for %s", id, imagePath)
-			output, err := et.Execute("-overwrite_original", dateTimeArg, imagePath)
-			if err != nil {
-				log.Printf("Worker %d: Exiftool command failed for '%s': %v\nOutput: %s", id, imagePath, err, output)
-				continue
-			}
-		} else {
-			log.Printf("Worker %d: [DRY RUN] Would update EXIF for %s", id, imagePath)
-		}
-
-		// --- 5. Move or copy file to organized structure ---
-		if err := moveOrCopyFile(imagePath, destPath, *dryRun, *keepFiles); err != nil {
-			if *keepFiles {
-				log.Printf("Worker %d: Error copying file %s to %s: %v", id, imagePath, destPath, err)
+		fileAlreadyExists := false
+		if _, err := os.Stat(destPath); err == nil {
+			fileAlreadyExists = true
+			if *dryRun {
+				log.Printf("Worker %d: [DRY RUN] File already exists at destination %s, skipping file operations but checking album symlinks", id, destPath)
 			} else {
-				log.Printf("Worker %d: Error moving file %s to %s: %v", id, imagePath, destPath, err)
+				log.Printf("Worker %d: File already exists at destination %s, skipping file operations but checking album symlinks", id, destPath)
 			}
-			continue
+		}
+
+		// --- 4. Update EXIF data and move/copy file (only if file doesn't already exist) ---
+		if !fileAlreadyExists {
+			if !*dryRun {
+				t := time.Unix(timestamp, 0)
+				formattedTime := t.Format("2006:01:02 15:04:05")
+				dateTimeArg := fmt.Sprintf("-CreateDate=%s -DateTimeOriginal=%s", formattedTime, formattedTime)
+
+				log.Printf("Worker %d: Updating EXIF for %s", id, imagePath)
+				output, err := et.Execute("-overwrite_original", dateTimeArg, imagePath)
+				if err != nil {
+					log.Printf("Worker %d: Exiftool command failed for '%s': %v\nOutput: %s", id, imagePath, err, output)
+					continue
+				}
+			} else {
+				log.Printf("Worker %d: [DRY RUN] Would update EXIF for %s", id, imagePath)
+			}
+
+			// --- 5. Move or copy file to organized structure ---
+			if err := moveOrCopyFile(imagePath, destPath, *dryRun, *keepFiles); err != nil {
+				if *keepFiles {
+					log.Printf("Worker %d: Error copying file %s to %s: %v", id, imagePath, destPath, err)
+				} else {
+					log.Printf("Worker %d: Error moving file %s to %s: %v", id, imagePath, destPath, err)
+				}
+				continue
+			}
 		}
 
 		// --- 6. Read metadata.json from the same directory for album info ---
@@ -513,14 +537,14 @@ func worker(id int, wg *sync.WaitGroup, jobs <-chan string, keepJSON, keepFiles 
 
 				if err := createSymlink(relativePath, symlinkPath, *dryRun); err != nil {
 					log.Printf("Worker %d: Error creating symlink %s -> %s: %v", id, symlinkPath, relativePath, err)
-				} else {
-					log.Printf("Worker %d: Created symlink in album '%s': %s", id, albumName, filename)
+				} else if !*dryRun {
+					log.Printf("Worker %d: Created/verified symlink in album '%s': %s", id, albumName, filename)
 				}
 			}
 		}
 
-		// --- 8. Handle JSON file ---
-		if !*keepJSON {
+		// --- 8. Handle JSON file (only if file operations were performed) ---
+		if !fileAlreadyExists && !*keepJSON {
 			if *dryRun {
 				log.Printf("Worker %d: [DRY RUN] Would delete JSON file %s", id, jsonPath)
 			} else {
@@ -533,7 +557,9 @@ func worker(id int, wg *sync.WaitGroup, jobs <-chan string, keepJSON, keepFiles 
 		if *dryRun {
 			log.Printf("Worker %d: [DRY RUN] Successfully processed %s", id, jsonPath)
 		} else {
-			if *keepFiles {
+			if fileAlreadyExists {
+				log.Printf("Worker %d: Successfully processed %s (file already existed, checked album symlinks)", id, jsonPath)
+			} else if *keepFiles {
 				log.Printf("Worker %d: Successfully processed %s -> %s (copied)", id, jsonPath, destPath)
 			} else {
 				log.Printf("Worker %d: Successfully processed %s -> %s (moved)", id, jsonPath, destPath)

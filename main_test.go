@@ -459,6 +459,21 @@ func TestCreateSymlink(t *testing.T) {
 		t.Errorf("Symlink should exist: %s", linkFile)
 	}
 
+	// Test creating the same symlink again (should not error)
+	err = createSymlink("target.txt", linkFile, false)
+	if err != nil {
+		t.Fatalf("createSymlink() existing symlink error = %v", err)
+	}
+
+	// Verify symlink still exists and points to correct target
+	target, err := os.Readlink(linkFile)
+	if err != nil {
+		t.Fatalf("Failed to read symlink: %v", err)
+	}
+	if target != "target.txt" {
+		t.Errorf("Symlink points to wrong target: got %s, want target.txt", target)
+	}
+
 	// Test dry run mode
 	linkFile2 := filepath.Join(tempDir, "link2.txt")
 	err = createSymlink("target.txt", linkFile2, true)
@@ -469,6 +484,88 @@ func TestCreateSymlink(t *testing.T) {
 	// Verify symlink was NOT created in dry run
 	if _, err := os.Lstat(linkFile2); !os.IsNotExist(err) {
 		t.Errorf("Symlink should not exist in dry run mode: %s", linkFile2)
+	}
+
+	// Test dry run with existing symlink
+	err = createSymlink("target.txt", linkFile, true)
+	if err != nil {
+		t.Fatalf("createSymlink() dry run with existing symlink error = %v", err)
+	}
+}
+
+// TestFileAlreadyExistsScenario tests the behavior when a file already exists in ALL_PHOTOS
+func TestFileAlreadyExistsScenario(t *testing.T) {
+	tempDir := t.TempDir()
+	sourceDir := filepath.Join(tempDir, "source")
+	destDir := filepath.Join(tempDir, "dest")
+
+	// Create source directory structure
+	if err := os.MkdirAll(sourceDir, 0755); err != nil {
+		t.Fatalf("Failed to create source dir: %v", err)
+	}
+
+	// Create test files in source
+	testImage := filepath.Join(sourceDir, "test.jpg")
+	testJSON := filepath.Join(sourceDir, "test.jpg.json")
+	metadataJSON := filepath.Join(sourceDir, "metadata.json")
+
+	if err := os.WriteFile(testImage, []byte("fake image"), 0644); err != nil {
+		t.Fatalf("Failed to create test image: %v", err)
+	}
+
+	jsonContent := `{"title":"test.jpg","photoTakenTime":{"timestamp":"1672531200"}}`
+	if err := os.WriteFile(testJSON, []byte(jsonContent), 0644); err != nil {
+		t.Fatalf("Failed to create test JSON: %v", err)
+	}
+
+	metadataContent := `{"title":"Test Album"}`
+	if err := os.WriteFile(metadataJSON, []byte(metadataContent), 0644); err != nil {
+		t.Fatalf("Failed to create metadata JSON: %v", err)
+	}
+
+	// Create destination structure with existing file
+	destPhotoPath := filepath.Join(destDir, "ALL_PHOTOS", "2023", "01", "01", "test.jpg")
+	if err := os.MkdirAll(filepath.Dir(destPhotoPath), 0755); err != nil {
+		t.Fatalf("Failed to create dest photo dir: %v", err)
+	}
+	if err := os.WriteFile(destPhotoPath, []byte("existing image"), 0644); err != nil {
+		t.Fatalf("Failed to create existing dest file: %v", err)
+	}
+
+	// Create album directory
+	albumDir := filepath.Join(destDir, "Test Album")
+	if err := os.MkdirAll(albumDir, 0755); err != nil {
+		t.Fatalf("Failed to create album dir: %v", err)
+	}
+
+	// Test that symlink gets created even when file already exists
+	symlinkPath := filepath.Join(albumDir, "test.jpg")
+	relativePath := filepath.Join("..", "ALL_PHOTOS", "2023", "01", "01", "test.jpg")
+
+	// Create symlink manually to simulate the worker behavior
+	err := createSymlink(relativePath, symlinkPath, false)
+	if err != nil {
+		t.Fatalf("Failed to create symlink: %v", err)
+	}
+
+	// Verify symlink was created
+	if _, err := os.Lstat(symlinkPath); os.IsNotExist(err) {
+		t.Errorf("Symlink should exist: %s", symlinkPath)
+	}
+
+	// Verify symlink points to correct target
+	target, err := os.Readlink(symlinkPath)
+	if err != nil {
+		t.Fatalf("Failed to read symlink: %v", err)
+	}
+	if target != relativePath {
+		t.Errorf("Symlink points to wrong target: got %s, want %s", target, relativePath)
+	}
+
+	// Test creating the same symlink again (should not error)
+	err = createSymlink(relativePath, symlinkPath, false)
+	if err != nil {
+		t.Errorf("Creating existing symlink should not error: %v", err)
 	}
 }
 

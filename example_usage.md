@@ -161,7 +161,7 @@ organized-photos/
 1. **Date-based organization**: Files are organized by the date they were taken (from EXIF timestamp)
 2. **Album preservation**: Albums are recreated as directories with symbolic links
 3. **EXIF timestamp fixing**: All processed files get their EXIF timestamps updated
-4. **Duplicate handling**: Files with the same name at the destination are skipped
+4. **Smart duplicate handling**: Files with the same name at the destination are skipped, but album symlinks are still created
 5. **Safe preview**: Dry-run mode lets you see exactly what will happen
 6. **Flexible file handling**: Choose to move files (default) or copy them (--keep-files)
 
@@ -178,6 +178,6 @@ organized-photos/
 
 If you see errors like:
 - `Image file 'filename.jpg' not found`: The JSON file exists but the corresponding image/video is missing
-- `File already exists at destination`: A file with the same name already exists in the organized structure
+- `File already exists at destination`: A file with the same name already exists in the organized structure, but album symlinks will still be created/verified
 - `Error creating symlink`: Your filesystem might not support symbolic links (rare on modern systems)
 - `Error copying file`: Insufficient disk space or permission issues when using `--keep-files`

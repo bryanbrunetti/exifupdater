@@ -111,7 +111,7 @@ The tool creates an organized directory structure in the destination folder:
 - **ALL_PHOTOS**: Main storage organized by date (YYYY/MM/DD)
 - **Album directories**: Named after the "title" field in `metadata.json` files
 - **Symbolic links**: Files in album directories link to the main storage location
-- **Duplicate handling**: Files with the same name at destination are logged and skipped
+- **Smart duplicate handling**: Files with the same name at the destination are skipped, but album symlinks are still created
 
 ## How It Works
 
@@ -152,7 +152,7 @@ And optional `metadata.json` files in the same directory:
 ## Error Handling
 
 - Files that can't be processed are logged with appropriate error messages
-- Files already existing at the destination are skipped with a warning
+- **Files already existing at the destination are skipped, but album symlinks are still created**
 - The tool continues processing other files if an error occurs
 - Detailed logs are printed to help diagnose any issues
 - Dry-run mode allows you to preview all operations before execution
@@ -212,6 +212,7 @@ go test -coverprofile=coverage.out && go tool cover -html=coverage.out
 2. **Permission denied**: Ensure you have write permissions to the destination directory
 3. **Files not found**: Check the filename variations - the tool handles many cases but some edge cases might exist
 4. **Symlink creation fails**: Ensure the filesystem supports symbolic links
+5. **"File already exists at destination"**: The file is already organized, but album symlinks will still be created/verified
 
 ### Getting Help
 
