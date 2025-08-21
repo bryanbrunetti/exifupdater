@@ -1,11 +1,16 @@
 # EXIF Timestamp Updater
-This tool fixes missing EXIF timestamps from photos and videos exported from Google Photos via Takeout.
+
+This tool fixes missing EXIF timestamps from photos and videos exported from Google Photos via Takeout, and organizes them into a structured directory layout with album support.
 
 ## Features
+
 - Processes multiple image files in parallel using worker goroutines
+- Organizes photos into date-based directory structure
+- Creates album directories with symbolic links based on metadata
 - Handles various filename variations and edge cases
 - Supports different image formats through exiftool
 - Can optionally keep or delete JSON files after processing
+- Dry-run mode to preview changes without making modifications
 - Efficiently processes large numbers of files
 
 ## Prerequisites
@@ -26,7 +31,7 @@ go run github.com/bryanbrunetti/exifupdater@latest
 1. Clone this repository:
    ```bash
    git clone https://github.com/bryanbrunetti/exifupdater.git
-   cd ExifUpdater
+   cd exifupdater
    ```
 
 2. Build the application:
@@ -37,44 +42,107 @@ go run github.com/bryanbrunetti/exifupdater@latest
 ## Usage
 
 ```
-Usage: exifupdater [options] <directory>
-  directory  The root directory to scan for JSON files (required)
+Usage: exifupdater [options] <source_directory>
+  source_directory  The root directory to scan for JSON files
 
 Options:
-  -keep-json    Keep JSON files after processing (don't delete them)
+  -dest string
+        Destination directory for organized photos (required)
+  -dry-run
+        Show what would be done without making any changes
+  -keep-json
+        Keep JSON files after processing (don't delete them)
+
+The destination directory will be organized as:
+  <dest>/ALL_PHOTOS/<year>/<month>/<day>/<filename>
+  <dest>/<album_name>/<filename> (symlinks to ALL_PHOTOS)
 ```
 
 ### Examples
 
-Process files in a specific directory and delete JSON files after processing:
+Process files and organize them (dry-run first to preview):
 ```bash
-./exifupdater /path/to/photos
+# Preview changes without making modifications
+./exifupdater -dry-run -dest /organized/photos /path/to/google-takeout
+
+# Actually process and organize the files
+./exifupdater -dest /organized/photos /path/to/google-takeout
 ```
 
-Process files and keep JSON files:
+Process files and keep JSON metadata:
 ```bash
-./exifupdater -keep-json /path/to/photos
+./exifupdater -keep-json -dest /organized/photos /path/to/google-takeout
 ```
+
+## Directory Structure
+
+The tool creates an organized directory structure in the destination folder:
+
+```
+/organized/photos/
+├── ALL_PHOTOS/
+│   └── 2023/
+│       └── 01/
+│           └── 15/
+│               ├── IMG_1234.jpg
+│               └── VID_5678.mp4
+├── Family Vacation/
+│   ├── IMG_1234.jpg -> ../ALL_PHOTOS/2023/01/15/IMG_1234.jpg
+│   └── VID_5678.mp4 -> ../ALL_PHOTOS/2023/01/15/VID_5678.mp4
+└── Birthday Party/
+    └── IMG_9876.jpg -> ../ALL_PHOTOS/2023/02/10/IMG_9876.jpg
+```
+
+### Key Features:
+
+- **ALL_PHOTOS**: Main storage organized by date (YYYY/MM/DD)
+- **Album directories**: Named after the "title" field in `metadata.json` files
+- **Symbolic links**: Files in album directories link to the main storage location
+- **Duplicate handling**: Files with the same name at destination are logged and skipped
 
 ## How It Works
 
-1. The tool scans the specified directory (or current directory) for `.json` file containing metadata from Google Takeout
-2. For each JSON file found, it looks for the corresponding image file
-3. It reads the timestamp from the JSON file
-4. Updates the EXIF data of the matching image file using exiftool
-5. Optionally deletes the JSON file after successful processing
+1. The tool scans the specified source directory for `.json` files containing metadata from Google Takeout
+2. For each JSON file found, it looks for the corresponding image/video file
+3. It reads the timestamp from the JSON file and updates the EXIF data using exiftool
+4. The file is moved to the organized structure: `<dest>/ALL_PHOTOS/<year>/<month>/<day>/<filename>`
+5. If a `metadata.json` file exists in the same directory with a "title" field:
+   - Creates an album directory named after the title
+   - Creates a symbolic link from the album to the organized file location
+6. Optionally deletes the JSON file after successful processing
 
 The tool handles various filename variations including:
-- Truncated filenames
+- Truncated filenames (48, 47, 46 character limits)
 - Numbered suffixes (e.g., `_1.jpg` → `(1).jpg`)
-- Different quote styles
-- Different filename cases
+- Different quote styles and characters
+- Different extension cases
+
+## Metadata Structure
+
+The tool expects JSON files with this structure:
+```json
+{
+  "title": "filename.jpg",
+  "photoTakenTime": {
+    "timestamp": "1640995200"
+  }
+}
+```
+
+And optional `metadata.json` files in the same directory:
+```json
+{
+  "title": "Album Name"
+}
+```
 
 ## Error Handling
 
 - Files that can't be processed are logged with appropriate error messages
+- Files already existing at the destination are skipped with a warning
 - The tool continues processing other files if an error occurs
 - Detailed logs are printed to help diagnose any issues
+- Dry-run mode allows you to preview all operations before execution
 
 ## Testing
 
@@ -114,3 +182,28 @@ go test -coverprofile=coverage.out && go tool cover -html=coverage.out
 
 - Tests require `exiftool` to be installed and available in the system PATH
 - The test suite will be skipped if exiftool is not found
+
+## Best Practices
+
+1. **Always run with --dry-run first** to preview what will happen
+2. **Make backups** of your original Google Takeout files before processing
+3. **Use absolute paths** for source and destination directories
+4. **Check disk space** before processing large collections
+5. **Review the logs** for any files that couldn't be processed
+
+## Troubleshooting
+
+### Common Issues
+
+1. **"exiftool command not found"**: Install exiftool and ensure it's in your PATH
+2. **Permission denied**: Ensure you have write permissions to the destination directory
+3. **Files not found**: Check the filename variations - the tool handles many cases but some edge cases might exist
+4. **Symlink creation fails**: Ensure the filesystem supports symbolic links
+
+### Getting Help
+
+If you encounter issues:
+1. Run with `--dry-run` to see what the tool would do
+2. Check the detailed log output for specific error messages
+3. Verify your source directory structure matches Google Takeout format
+4. Ensure sufficient disk space and permissions

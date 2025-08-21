@@ -215,6 +215,164 @@ func TestCheckTruncatedName(t *testing.T) {
 	}
 }
 
+// TestGetDateFromTimestamp tests the getDateFromTimestamp function
+func TestGetDateFromTimestamp(t *testing.T) {
+	tests := []struct {
+		name      string
+		timestamp int64
+		wantYear  string
+		wantMonth string
+		wantDay   string
+	}{
+		{
+			name:      "New Year 2023",
+			timestamp: 1672531200, // 2023-01-01 00:00:00 UTC
+			wantYear:  "2023",
+			wantMonth: "01",
+			wantDay:   "01",
+		},
+		{
+			name:      "Mid year date",
+			timestamp: 1688169600, // 2023-07-01 00:00:00 UTC
+			wantYear:  "2023",
+			wantMonth: "07",
+			wantDay:   "01",
+		},
+		{
+			name:      "December date",
+			timestamp: 1701388800, // 2023-12-01 00:00:00 UTC
+			wantYear:  "2023",
+			wantMonth: "12",
+			wantDay:   "01",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotYear, gotMonth, gotDay := getDateFromTimestamp(tt.timestamp)
+			if gotYear != tt.wantYear {
+				t.Errorf("getDateFromTimestamp() year = %v, want %v", gotYear, tt.wantYear)
+			}
+			if gotMonth != tt.wantMonth {
+				t.Errorf("getDateFromTimestamp() month = %v, want %v", gotMonth, tt.wantMonth)
+			}
+			if gotDay != tt.wantDay {
+				t.Errorf("getDateFromTimestamp() day = %v, want %v", gotDay, tt.wantDay)
+			}
+		})
+	}
+}
+
+// TestEnsureDirectory tests the ensureDirectory function
+func TestEnsureDirectory(t *testing.T) {
+	tempDir := t.TempDir()
+	testDir := filepath.Join(tempDir, "test", "nested", "directory")
+
+	// Test creating directory (not dry run)
+	err := ensureDirectory(testDir, false)
+	if err != nil {
+		t.Fatalf("ensureDirectory() error = %v", err)
+	}
+
+	// Verify directory was created
+	if _, err := os.Stat(testDir); os.IsNotExist(err) {
+		t.Errorf("Directory was not created: %s", testDir)
+	}
+
+	// Test dry run mode
+	testDir2 := filepath.Join(tempDir, "dry", "run", "test")
+	err = ensureDirectory(testDir2, true)
+	if err != nil {
+		t.Fatalf("ensureDirectory() dry run error = %v", err)
+	}
+
+	// Verify directory was NOT created in dry run
+	if _, err := os.Stat(testDir2); !os.IsNotExist(err) {
+		t.Errorf("Directory should not exist in dry run mode: %s", testDir2)
+	}
+}
+
+// TestMoveFile tests the moveFile function
+func TestMoveFile(t *testing.T) {
+	tempDir := t.TempDir()
+	sourceFile := filepath.Join(tempDir, "source.txt")
+	destFile := filepath.Join(tempDir, "dest", "moved.txt")
+
+	// Create source file
+	if err := os.WriteFile(sourceFile, []byte("test content"), 0644); err != nil {
+		t.Fatalf("Failed to create source file: %v", err)
+	}
+
+	// Test moving file (not dry run)
+	err := moveFile(sourceFile, destFile, false)
+	if err != nil {
+		t.Fatalf("moveFile() error = %v", err)
+	}
+
+	// Verify file was moved
+	if _, err := os.Stat(sourceFile); !os.IsNotExist(err) {
+		t.Errorf("Source file should not exist after move: %s", sourceFile)
+	}
+	if _, err := os.Stat(destFile); os.IsNotExist(err) {
+		t.Errorf("Destination file should exist after move: %s", destFile)
+	}
+
+	// Test dry run mode
+	sourceFile2 := filepath.Join(tempDir, "source2.txt")
+	destFile2 := filepath.Join(tempDir, "dest2", "moved2.txt")
+	if err := os.WriteFile(sourceFile2, []byte("test content 2"), 0644); err != nil {
+		t.Fatalf("Failed to create second source file: %v", err)
+	}
+
+	err = moveFile(sourceFile2, destFile2, true)
+	if err != nil {
+		t.Fatalf("moveFile() dry run error = %v", err)
+	}
+
+	// Verify file was NOT moved in dry run
+	if _, err := os.Stat(sourceFile2); os.IsNotExist(err) {
+		t.Errorf("Source file should still exist in dry run mode: %s", sourceFile2)
+	}
+	if _, err := os.Stat(destFile2); !os.IsNotExist(err) {
+		t.Errorf("Destination file should not exist in dry run mode: %s", destFile2)
+	}
+}
+
+// TestCreateSymlink tests the createSymlink function
+func TestCreateSymlink(t *testing.T) {
+	tempDir := t.TempDir()
+	targetFile := filepath.Join(tempDir, "target.txt")
+	linkFile := filepath.Join(tempDir, "link.txt")
+
+	// Create target file
+	if err := os.WriteFile(targetFile, []byte("target content"), 0644); err != nil {
+		t.Fatalf("Failed to create target file: %v", err)
+	}
+
+	// Test creating symlink (not dry run)
+	err := createSymlink("target.txt", linkFile, false)
+	if err != nil {
+		t.Fatalf("createSymlink() error = %v", err)
+	}
+
+	// Verify symlink was created
+	if _, err := os.Lstat(linkFile); os.IsNotExist(err) {
+		t.Errorf("Symlink should exist: %s", linkFile)
+	}
+
+	// Test dry run mode
+	linkFile2 := filepath.Join(tempDir, "link2.txt")
+	err = createSymlink("target.txt", linkFile2, true)
+	if err != nil {
+		t.Fatalf("createSymlink() dry run error = %v", err)
+	}
+
+	// Verify symlink was NOT created in dry run
+	if _, err := os.Lstat(linkFile2); !os.IsNotExist(err) {
+		t.Errorf("Symlink should not exist in dry run mode: %s", linkFile2)
+	}
+}
+
 // TestMain sets up and tears down any test dependencies
 func TestMain(m *testing.M) {
 	// Check if exiftool is installed

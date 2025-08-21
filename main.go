@@ -208,39 +208,109 @@ func checkExtensionCase(dir, basename, ext, originalTitle string, caseFunc func(
 	return ""
 }
 
+// ensureDirectory creates a directory if it doesn't exist
+func ensureDirectory(path string, dryRun bool) error {
+	if dryRun {
+		log.Printf("[DRY RUN] Would create directory: %s", path)
+		return nil
+	}
+	return os.MkdirAll(path, 0755)
+}
+
+// moveFile moves a file from src to dest, creating directories as needed
+func moveFile(src, dest string, dryRun bool) error {
+	if dryRun {
+		log.Printf("[DRY RUN] Would move file: %s -> %s", src, dest)
+		return nil
+	}
+
+	// Create destination directory if it doesn't exist
+	destDir := filepath.Dir(dest)
+	if err := os.MkdirAll(destDir, 0755); err != nil {
+		return fmt.Errorf("creating destination directory %s: %v", destDir, err)
+	}
+
+	return os.Rename(src, dest)
+}
+
+// createSymlink creates a symbolic link
+func createSymlink(oldname, newname string, dryRun bool) error {
+	if dryRun {
+		log.Printf("[DRY RUN] Would create symlink: %s -> %s", newname, oldname)
+		return nil
+	}
+
+	// Remove existing symlink if it exists
+	if _, err := os.Lstat(newname); err == nil {
+		if err := os.Remove(newname); err != nil {
+			return fmt.Errorf("removing existing symlink %s: %v", newname, err)
+		}
+	}
+
+	return os.Symlink(oldname, newname)
+}
+
+// getDateFromTimestamp extracts year, month, day from Unix timestamp
+func getDateFromTimestamp(timestamp int64) (year, month, day string) {
+	t := time.Unix(timestamp, 0).UTC()
+	return fmt.Sprintf("%04d", t.Year()), fmt.Sprintf("%02d", int(t.Month())), fmt.Sprintf("%02d", t.Day())
+}
+
 func main() {
 	// --- 1. Setup and Command-Line Parsing ---
 	fmt.Println("Starting EXIF timestamp updater...")
 
 	keepJSON := flag.Bool("keep-json", false, "Keep JSON files after processing (don't delete them)")
+	dryRun := flag.Bool("dry-run", false, "Show what would be done without making any changes")
+	var destDir string
+	flag.StringVar(&destDir, "dest", "", "Destination directory for organized photos")
 
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: %s [options] <directory>\n", filepath.Base(os.Args[0]))
-		fmt.Fprintf(os.Stderr, "  directory  The root directory to scan for JSON files\n")
+		fmt.Fprintf(os.Stderr, "Usage: %s [options] <source_directory>\n", filepath.Base(os.Args[0]))
+		fmt.Fprintf(os.Stderr, "  source_directory  The root directory to scan for JSON files\n")
 		fmt.Fprintf(os.Stderr, "\nOptions:\n")
 		flag.PrintDefaults()
+		fmt.Fprintf(os.Stderr, "\nThe destination directory will be organized as:\n")
+		fmt.Fprintf(os.Stderr, "  <dest>/ALL_PHOTOS/<year>/<month>/<day>/<filename>\n")
+		fmt.Fprintf(os.Stderr, "  <dest>/<album_name>/<filename> (symlinks to ALL_PHOTOS)\n")
 	}
 	flag.Parse()
 
 	if flag.NArg() == 0 {
 		flag.Usage()
-		log.Fatal("Error: No directory specified")
+		log.Fatal("Error: No source directory specified")
 	}
 
-	dir := flag.Arg(0)
-	info, err := os.Stat(dir)
+	if destDir == "" {
+		flag.Usage()
+		log.Fatal("Error: Destination directory (-dest) is required")
+	}
+
+	sourceDir := flag.Arg(0)
+	info, err := os.Stat(sourceDir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			log.Fatalf("Error: Directory does not exist: %s", dir)
+			log.Fatalf("Error: Source directory does not exist: %s", sourceDir)
 		}
-		log.Fatalf("Error: Could not access directory %s: %v", dir, err)
+		log.Fatalf("Error: Could not access source directory %s: %v", sourceDir, err)
 	}
 	if !info.IsDir() {
-		log.Fatalf("Error: Provided path is not a directory: %s", dir)
+		log.Fatalf("Error: Provided source path is not a directory: %s", sourceDir)
 	}
 
-	if _, err := exec.LookPath("exiftool"); err != nil {
-		log.Fatalf("Error: 'exiftool' command not found. Please ensure it is installed and in your system's PATH.")
+	// Create destination directory if it doesn't exist
+	if err := ensureDirectory(destDir, *dryRun); err != nil {
+		log.Fatalf("Error: Could not create destination directory %s: %v", destDir, err)
+	}
+
+	if !*dryRun {
+		if _, err := exec.LookPath("exiftool"); err != nil {
+			log.Fatalf("Error: 'exiftool' command not found. Please ensure it is installed and in your system's PATH.")
+		}
+	}
+
+	if *dryRun {
+		log.Printf("DRY RUN MODE: No files will be modified")
 	}
 
 	// --- 2. Worker Pool Initialization ---
@@ -252,13 +322,13 @@ func main() {
 
 	for i := 1; i <= numWorkers; i++ {
 		wg.Add(1)
-		go worker(i, &wg, jobs, keepJSON)
+		go worker(i, &wg, jobs, keepJSON, destDir, dryRun)
 	}
 
 	// --- 3. Directory Traversal ---
 	go func() {
 		defer close(jobs)
-		err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		err := filepath.Walk(sourceDir, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
 				log.Printf("Warning: Skipping path due to error: %s: %v", path, err)
 				return nil
@@ -269,7 +339,7 @@ func main() {
 			return nil
 		})
 		if err != nil {
-			log.Printf("Error walking the path %s: %v\n", dir, err)
+			log.Printf("Error walking the path %s: %v\n", sourceDir, err)
 		}
 	}()
 
@@ -279,18 +349,22 @@ func main() {
 }
 
 // worker defines the work each goroutine will perform.
-func worker(id int, wg *sync.WaitGroup, jobs <-chan string, keepJSON *bool) {
+func worker(id int, wg *sync.WaitGroup, jobs <-chan string, keepJSON *bool, destDir string, dryRun *bool) {
 	defer wg.Done()
 
-	// Each worker gets its own persistent exiftool process.
-	et, err := NewExifTool()
-	if err != nil {
-		log.Printf("Worker %d: Failed to start exiftool: %v", id, err)
-		return
-	}
-	defer et.Close()
+	var et *ExifTool
+	var err error
 
-	log.Printf("Worker %d: Exiftool process started.", id)
+	// Only start exiftool if not in dry run mode
+	if !*dryRun {
+		et, err = NewExifTool()
+		if err != nil {
+			log.Printf("Worker %d: Failed to start exiftool: %v", id, err)
+			return
+		}
+		defer et.Close()
+		log.Printf("Worker %d: Exiftool process started.", id)
+	}
 
 	for jsonPath := range jobs {
 		// --- 1. Read and Parse JSON ---
@@ -325,34 +399,104 @@ func worker(id int, wg *sync.WaitGroup, jobs <-chan string, keepJSON *bool) {
 			continue
 		}
 
-		// --- 3. Convert Timestamp ---
+		// --- 3. Convert Timestamp and determine date structure ---
 		timestamp, err := strconv.ParseInt(meta.PhotoTakenTime.Timestamp, 10, 64)
 		if err != nil {
 			log.Printf("Worker %d: Could not parse timestamp in %s: %v", id, jsonPath, err)
 			continue
 		}
-		t := time.Unix(timestamp, 0)
-		formattedTime := t.Format("2006:01:02 15:04:05")
-		dateTimeArg := fmt.Sprintf("-DateTimeOriginal=%s", formattedTime)
 
-		// --- 4. Execute command via stay-open process ---
-		log.Printf("Worker %d: Updating %s", id, imagePath)
-		output, err := et.Execute("-overwrite_original", dateTimeArg, imagePath)
-		if err != nil {
-			log.Printf("Worker %d: Exiftool command failed for '%s': %v\nOutput: %s", id, imagePath, err, output)
+		year, month, day := getDateFromTimestamp(timestamp)
+		filename := filepath.Base(imagePath)
+
+		// Create destination path: <dest>/ALL_PHOTOS/<year>/<month>/<day>/<filename>
+		allPhotosPath := filepath.Join(destDir, "ALL_PHOTOS", year, month, day)
+		destPath := filepath.Join(allPhotosPath, filename)
+
+		// Check if file already exists at destination
+		if !*dryRun {
+			if _, err := os.Stat(destPath); err == nil {
+				log.Printf("Worker %d: File already exists at destination %s, skipping", id, destPath)
+				continue
+			}
+		}
+
+		// --- 4. Update EXIF data ---
+		if !*dryRun {
+			t := time.Unix(timestamp, 0)
+			formattedTime := t.Format("2006:01:02 15:04:05")
+			dateTimeArg := fmt.Sprintf("-CreateDate=%s -DateTimeOriginal=%s", formattedTime, formattedTime)
+
+			log.Printf("Worker %d: Updating EXIF for %s", id, imagePath)
+			output, err := et.Execute("-overwrite_original", dateTimeArg, imagePath)
+			if err != nil {
+				log.Printf("Worker %d: Exiftool command failed for '%s': %v\nOutput: %s", id, imagePath, err, output)
+				continue
+			}
+		} else {
+			log.Printf("Worker %d: [DRY RUN] Would update EXIF for %s", id, imagePath)
+		}
+
+		// --- 5. Move file to organized structure ---
+		if err := moveFile(imagePath, destPath, *dryRun); err != nil {
+			log.Printf("Worker %d: Error moving file %s to %s: %v", id, imagePath, destPath, err)
 			continue
 		}
 
-		// --- 5. Optionally delete JSON file on success ---
-		if !*keepJSON {
-			if err := os.Remove(jsonPath); err != nil {
-				log.Printf("Worker %d: Warning: Could not delete JSON file %s: %v", id, jsonPath, err)
-			} else {
-				log.Printf("Worker %d: Successfully processed and deleted %s", id, jsonPath)
+		// --- 6. Read metadata.json from the same directory for album info ---
+		metadataJsonPath := filepath.Join(filepath.Dir(jsonPath), "metadata.json")
+		albumName := ""
+
+		if metadataFile, err := os.Open(metadataJsonPath); err == nil {
+			var metadataContent map[string]interface{}
+			decoder := json.NewDecoder(metadataFile)
+			if err := decoder.Decode(&metadataContent); err == nil {
+				if title, ok := metadataContent["title"].(string); ok && title != "" {
+					albumName = title
+				}
 			}
+			metadataFile.Close()
+		}
+
+		// --- 7. Create album directory and symlink ---
+		if albumName != "" {
+			albumDir := filepath.Join(destDir, albumName)
+			if err := ensureDirectory(albumDir, *dryRun); err != nil {
+				log.Printf("Worker %d: Error creating album directory %s: %v", id, albumDir, err)
+			} else {
+				// Create relative path for symlink: ../ALL_PHOTOS/<year>/<month>/<day>/<filename>
+				relativePath := filepath.Join("..", "ALL_PHOTOS", year, month, day, filename)
+				symlinkPath := filepath.Join(albumDir, filename)
+
+				if err := createSymlink(relativePath, symlinkPath, *dryRun); err != nil {
+					log.Printf("Worker %d: Error creating symlink %s -> %s: %v", id, symlinkPath, relativePath, err)
+				} else {
+					log.Printf("Worker %d: Created symlink in album '%s': %s", id, albumName, filename)
+				}
+			}
+		}
+
+		// --- 8. Handle JSON file ---
+		if !*keepJSON {
+			if *dryRun {
+				log.Printf("Worker %d: [DRY RUN] Would delete JSON file %s", id, jsonPath)
+			} else {
+				if err := os.Remove(jsonPath); err != nil {
+					log.Printf("Worker %d: Warning: Could not delete JSON file %s: %v", id, jsonPath, err)
+				}
+			}
+		}
+
+		if *dryRun {
+			log.Printf("Worker %d: [DRY RUN] Successfully processed %s", id, jsonPath)
 		} else {
-			log.Printf("Worker %d: Successfully processed %s (kept JSON file as requested)", id, jsonPath)
+			log.Printf("Worker %d: Successfully processed %s -> %s", id, jsonPath, destPath)
 		}
 	}
-	log.Printf("Worker %d: Shutting down.", id)
+
+	if !*dryRun {
+		log.Printf("Worker %d: Shutting down.", id)
+	} else {
+		log.Printf("Worker %d: [DRY RUN] Shutting down.", id)
+	}
 }
