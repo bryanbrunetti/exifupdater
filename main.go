@@ -81,7 +81,6 @@ func (et *ExifTool) Execute(args ...string) (string, error) {
 	log.Printf("Executing exiftool with args: %v", args)
 	// Write arguments to the process, one per line.
 	for _, arg := range args {
-		log.Printf("Sending arg: %q", arg)
 		if _, err := fmt.Fprintln(et.stdin, arg); err != nil {
 			return "", fmt.Errorf("writing arg %q: %v", arg, err)
 		}
@@ -313,6 +312,12 @@ func getDateFromTimestamp(timestamp int64) (year, month, day string) {
 	return fmt.Sprintf("%04d", t.Year()), fmt.Sprintf("%02d", int(t.Month())), fmt.Sprintf("%02d", t.Day())
 }
 
+// scanResult holds the result of scanning a single file
+type scanResult struct {
+	filePath string
+	missing  bool
+}
+
 // performScan scans all non-JSON files and reports how many are missing EXIF timestamp data
 func performScan(sourceDir string) {
 	fmt.Printf("Scanning directory: %s\n", sourceDir)
@@ -320,18 +325,10 @@ func performScan(sourceDir string) {
 	fmt.Println("Looking for: DateTimeOriginal, MediaCreateDate, CreationDate, TrackCreateDate, CreateDate, DateTimeDigitized, GPSDateStamp, DateTime")
 	fmt.Println()
 
-	// Start exiftool process
-	et, err := NewExifTool()
-	if err != nil {
-		log.Fatalf("Failed to start exiftool for scanning: %v", err)
-	}
-	defer et.Close()
-
-	var totalFiles, missingFiles int
 	var filesToCheck []string
 
 	// Collect all non-JSON files
-	err = filepath.Walk(sourceDir, func(path string, info os.FileInfo, err error) error {
+	err := filepath.Walk(sourceDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			log.Printf("Warning: Skipping path due to error: %s: %v", path, err)
 			return nil
@@ -342,7 +339,6 @@ func performScan(sourceDir string) {
 			ext := strings.ToLower(filepath.Ext(path))
 			if isMediaFile(ext) {
 				filesToCheck = append(filesToCheck, path)
-				totalFiles++
 			}
 		}
 		return nil
@@ -352,17 +348,55 @@ func performScan(sourceDir string) {
 		log.Fatalf("Error walking directory: %v", err)
 	}
 
+	totalFiles := len(filesToCheck)
 	fmt.Printf("Found %d media files to check\n", totalFiles)
+
+	if totalFiles == 0 {
+		fmt.Println("\nNo media files found to scan.")
+		return
+	}
+
 	fmt.Println("Analyzing files...")
 
-	// Check each file for EXIF timestamp data
-	for i, filePath := range filesToCheck {
-		if i%100 == 0 && i > 0 {
-			fmt.Printf("Processed %d/%d files...\n", i, totalFiles)
-		}
+	// --- Worker Pool for Scanning ---
+	numWorkers := runtime.NumCPU()
+	fmt.Printf("Using %d workers for scanning...\n", numWorkers)
 
-		if isMissingTimestamps(et, filePath) {
+	jobs := make(chan string, numWorkers)
+	results := make(chan scanResult, totalFiles)
+	var wg sync.WaitGroup
+
+	// Start workers
+	for i := 1; i <= numWorkers; i++ {
+		wg.Add(1)
+		go scanWorker(i, &wg, jobs, results)
+	}
+
+	// Send jobs
+	go func() {
+		defer close(jobs)
+		for _, filePath := range filesToCheck {
+			jobs <- filePath
+		}
+	}()
+
+	// Wait for workers to complete
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Collect results and show progress
+	var missingFiles int
+	processedFiles := 0
+	for result := range results {
+		if result.missing {
 			missingFiles++
+		}
+		processedFiles++
+
+		if processedFiles%100 == 0 || processedFiles == totalFiles {
+			fmt.Printf("Processed %d/%d files...\n", processedFiles, totalFiles)
 		}
 	}
 
@@ -381,6 +415,27 @@ func performScan(sourceDir string) {
 		fmt.Printf("\nFiles missing timestamps would benefit from EXIF timestamp updating.\n")
 	} else {
 		fmt.Printf("\nAll files have some form of timestamp data.\n")
+	}
+}
+
+// scanWorker processes files for timestamp analysis
+func scanWorker(id int, wg *sync.WaitGroup, jobs <-chan string, results chan<- scanResult) {
+	defer wg.Done()
+
+	// Each worker gets its own persistent exiftool process
+	et, err := NewExifTool()
+	if err != nil {
+		log.Printf("Scan worker %d: Failed to start exiftool: %v", id, err)
+		return
+	}
+	defer et.Close()
+
+	for filePath := range jobs {
+		missing := isMissingTimestamps(et, filePath)
+		results <- scanResult{
+			filePath: filePath,
+			missing:  missing,
+		}
 	}
 }
 

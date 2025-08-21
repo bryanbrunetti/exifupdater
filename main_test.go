@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -677,6 +678,102 @@ func TestScanFunctionality(t *testing.T) {
 
 	if len(filesToCheck) != expectedMediaFiles {
 		t.Errorf("Expected %d media files, found %d", expectedMediaFiles, len(filesToCheck))
+	}
+}
+
+// TestScanWorkerFunctionality tests the multi-worker scan functionality
+func TestScanWorkerFunctionality(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// Create test files with various media types
+	testFiles := []string{
+		"photo1.jpg", "photo2.png", "video1.mp4", "video2.mov",
+		"raw1.cr2", "raw2.nef", "image.heic", "clip.avi",
+	}
+
+	for _, filename := range testFiles {
+		filePath := filepath.Join(tempDir, filename)
+		if err := os.WriteFile(filePath, []byte("fake media content"), 0644); err != nil {
+			t.Fatalf("Failed to create test file %s: %v", filename, err)
+		}
+	}
+
+	// Create non-media files that should be ignored
+	nonMediaFiles := []string{"document.pdf", "data.json", "readme.txt"}
+	for _, filename := range nonMediaFiles {
+		filePath := filepath.Join(tempDir, filename)
+		if err := os.WriteFile(filePath, []byte("non-media content"), 0644); err != nil {
+			t.Fatalf("Failed to create non-media file %s: %v", filename, err)
+		}
+	}
+
+	// Test the scan worker functionality by simulating what performScan does
+	var filesToCheck []string
+	err := filepath.Walk(tempDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if !info.IsDir() && filepath.Ext(strings.ToLower(path)) != ".json" {
+			ext := strings.ToLower(filepath.Ext(path))
+			if isMediaFile(ext) {
+				filesToCheck = append(filesToCheck, path)
+			}
+		}
+		return nil
+	})
+
+	if err != nil {
+		t.Fatalf("Error walking directory: %v", err)
+	}
+
+	expectedMediaFiles := len(testFiles) // Should find all media files
+	if len(filesToCheck) != expectedMediaFiles {
+		t.Errorf("Expected %d media files, found %d", expectedMediaFiles, len(filesToCheck))
+	}
+
+	// Test that we can create multiple exiftool workers
+	numWorkers := 2
+	jobs := make(chan string, numWorkers)
+	results := make(chan scanResult, len(filesToCheck))
+	var wg sync.WaitGroup
+
+	// Start workers
+	for i := 1; i <= numWorkers; i++ {
+		wg.Add(1)
+		go scanWorker(i, &wg, jobs, results)
+	}
+
+	// Send jobs
+	go func() {
+		defer close(jobs)
+		for _, filePath := range filesToCheck {
+			jobs <- filePath
+		}
+	}()
+
+	// Wait for workers to complete
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Collect results
+	resultsCount := 0
+	missingCount := 0
+	for result := range results {
+		resultsCount++
+		if result.missing {
+			missingCount++
+		}
+	}
+
+	if resultsCount != len(filesToCheck) {
+		t.Errorf("Expected %d results, got %d", len(filesToCheck), resultsCount)
+	}
+
+	// All our test files should be missing timestamps since they're fake files
+	if missingCount != len(filesToCheck) {
+		t.Errorf("Expected all %d files to be missing timestamps, got %d", len(filesToCheck), missingCount)
 	}
 }
 
