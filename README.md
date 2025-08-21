@@ -10,6 +10,7 @@ This tool fixes missing EXIF timestamps from photos and videos exported from Goo
 - Handles various filename variations and edge cases
 - Supports different image formats through exiftool
 - Can optionally keep or delete JSON files after processing
+- Can copy files instead of moving them (preserving originals)
 - Dry-run mode to preview changes without making modifications
 - Efficiently processes large numbers of files
 
@@ -50,6 +51,8 @@ Options:
         Destination directory for organized photos (required)
   -dry-run
         Show what would be done without making any changes
+  -keep-files
+        Copy files instead of moving them (preserves originals)
   -keep-json
         Keep JSON files after processing (don't delete them)
 
@@ -71,7 +74,17 @@ Process files and organize them (dry-run first to preview):
 
 Process files and keep JSON metadata:
 ```bash
-./exifupdater -keep-json -dest /organized/photos /path/to/google-takeout
+./exifupdater --keep-json --dest /organized/photos /path/to/google-takeout
+```
+
+Process files by copying instead of moving (preserves originals):
+```bash
+./exifupdater --keep-files --dest /organized/photos /path/to/google-takeout
+```
+
+Combine options (copy files and keep JSON):
+```bash
+./exifupdater --keep-files --keep-json --dest /organized/photos /path/to/google-takeout
 ```
 
 ## Directory Structure
@@ -105,7 +118,7 @@ The tool creates an organized directory structure in the destination folder:
 1. The tool scans the specified source directory for `.json` files containing metadata from Google Takeout
 2. For each JSON file found, it looks for the corresponding image/video file
 3. It reads the timestamp from the JSON file and updates the EXIF data using exiftool
-4. The file is moved to the organized structure: `<dest>/ALL_PHOTOS/<year>/<month>/<day>/<filename>`
+4. The file is moved (or copied with `--keep-files`) to the organized structure: `<dest>/ALL_PHOTOS/<year>/<month>/<day>/<filename>`
 5. If a `metadata.json` file exists in the same directory with a "title" field:
    - Creates an album directory named after the title
    - Creates a symbolic link from the album to the organized file location
@@ -186,9 +199,9 @@ go test -coverprofile=coverage.out && go tool cover -html=coverage.out
 ## Best Practices
 
 1. **Always run with --dry-run first** to preview what will happen
-2. **Make backups** of your original Google Takeout files before processing
+2. **Make backups** of your original Google Takeout files before processing (or use `--keep-files`)
 3. **Use absolute paths** for source and destination directories
-4. **Check disk space** before processing large collections
+4. **Check disk space** before processing large collections (especially when using `--keep-files`)
 5. **Review the logs** for any files that couldn't be processed
 
 ## Troubleshooting

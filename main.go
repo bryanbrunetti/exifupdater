@@ -217,10 +217,14 @@ func ensureDirectory(path string, dryRun bool) error {
 	return os.MkdirAll(path, 0755)
 }
 
-// moveFile moves a file from src to dest, creating directories as needed
-func moveFile(src, dest string, dryRun bool) error {
+// moveOrCopyFile moves or copies a file from src to dest, creating directories as needed
+func moveOrCopyFile(src, dest string, dryRun, keepFiles bool) error {
 	if dryRun {
-		log.Printf("[DRY RUN] Would move file: %s -> %s", src, dest)
+		if keepFiles {
+			log.Printf("[DRY RUN] Would copy file: %s -> %s", src, dest)
+		} else {
+			log.Printf("[DRY RUN] Would move file: %s -> %s", src, dest)
+		}
 		return nil
 	}
 
@@ -230,7 +234,41 @@ func moveFile(src, dest string, dryRun bool) error {
 		return fmt.Errorf("creating destination directory %s: %v", destDir, err)
 	}
 
-	return os.Rename(src, dest)
+	if keepFiles {
+		// Copy the file
+		return copyFile(src, dest)
+	} else {
+		// Move the file
+		return os.Rename(src, dest)
+	}
+}
+
+// copyFile copies a file from src to dest
+func copyFile(src, dest string) error {
+	sourceFile, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("opening source file %s: %v", src, err)
+	}
+	defer sourceFile.Close()
+
+	destFile, err := os.Create(dest)
+	if err != nil {
+		return fmt.Errorf("creating destination file %s: %v", dest, err)
+	}
+	defer destFile.Close()
+
+	_, err = io.Copy(destFile, sourceFile)
+	if err != nil {
+		return fmt.Errorf("copying file content: %v", err)
+	}
+
+	// Copy file permissions
+	sourceInfo, err := sourceFile.Stat()
+	if err != nil {
+		return fmt.Errorf("getting source file info: %v", err)
+	}
+
+	return os.Chmod(dest, sourceInfo.Mode())
 }
 
 // createSymlink creates a symbolic link
@@ -261,6 +299,7 @@ func main() {
 	fmt.Println("Starting EXIF timestamp updater...")
 
 	keepJSON := flag.Bool("keep-json", false, "Keep JSON files after processing (don't delete them)")
+	keepFiles := flag.Bool("keep-files", false, "Copy files instead of moving them (preserves originals)")
 	dryRun := flag.Bool("dry-run", false, "Show what would be done without making any changes")
 	var destDir string
 	flag.StringVar(&destDir, "dest", "", "Destination directory for organized photos")
@@ -322,7 +361,7 @@ func main() {
 
 	for i := 1; i <= numWorkers; i++ {
 		wg.Add(1)
-		go worker(i, &wg, jobs, keepJSON, destDir, dryRun)
+		go worker(i, &wg, jobs, keepJSON, keepFiles, destDir, dryRun)
 	}
 
 	// --- 3. Directory Traversal ---
@@ -349,7 +388,7 @@ func main() {
 }
 
 // worker defines the work each goroutine will perform.
-func worker(id int, wg *sync.WaitGroup, jobs <-chan string, keepJSON *bool, destDir string, dryRun *bool) {
+func worker(id int, wg *sync.WaitGroup, jobs <-chan string, keepJSON, keepFiles *bool, destDir string, dryRun *bool) {
 	defer wg.Done()
 
 	var et *ExifTool
@@ -437,9 +476,13 @@ func worker(id int, wg *sync.WaitGroup, jobs <-chan string, keepJSON *bool, dest
 			log.Printf("Worker %d: [DRY RUN] Would update EXIF for %s", id, imagePath)
 		}
 
-		// --- 5. Move file to organized structure ---
-		if err := moveFile(imagePath, destPath, *dryRun); err != nil {
-			log.Printf("Worker %d: Error moving file %s to %s: %v", id, imagePath, destPath, err)
+		// --- 5. Move or copy file to organized structure ---
+		if err := moveOrCopyFile(imagePath, destPath, *dryRun, *keepFiles); err != nil {
+			if *keepFiles {
+				log.Printf("Worker %d: Error copying file %s to %s: %v", id, imagePath, destPath, err)
+			} else {
+				log.Printf("Worker %d: Error moving file %s to %s: %v", id, imagePath, destPath, err)
+			}
 			continue
 		}
 
@@ -490,7 +533,11 @@ func worker(id int, wg *sync.WaitGroup, jobs <-chan string, keepJSON *bool, dest
 		if *dryRun {
 			log.Printf("Worker %d: [DRY RUN] Successfully processed %s", id, jsonPath)
 		} else {
-			log.Printf("Worker %d: Successfully processed %s -> %s", id, jsonPath, destPath)
+			if *keepFiles {
+				log.Printf("Worker %d: Successfully processed %s -> %s (copied)", id, jsonPath, destPath)
+			} else {
+				log.Printf("Worker %d: Successfully processed %s -> %s (moved)", id, jsonPath, destPath)
+			}
 		}
 	}
 

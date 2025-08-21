@@ -292,21 +292,22 @@ func TestEnsureDirectory(t *testing.T) {
 	}
 }
 
-// TestMoveFile tests the moveFile function
-func TestMoveFile(t *testing.T) {
+// TestMoveOrCopyFile tests the moveOrCopyFile function
+func TestMoveOrCopyFile(t *testing.T) {
 	tempDir := t.TempDir()
+
+	// Test moving file (not dry run, not keeping files)
 	sourceFile := filepath.Join(tempDir, "source.txt")
 	destFile := filepath.Join(tempDir, "dest", "moved.txt")
+	testContent := []byte("test content")
 
-	// Create source file
-	if err := os.WriteFile(sourceFile, []byte("test content"), 0644); err != nil {
+	if err := os.WriteFile(sourceFile, testContent, 0644); err != nil {
 		t.Fatalf("Failed to create source file: %v", err)
 	}
 
-	// Test moving file (not dry run)
-	err := moveFile(sourceFile, destFile, false)
+	err := moveOrCopyFile(sourceFile, destFile, false, false)
 	if err != nil {
-		t.Fatalf("moveFile() error = %v", err)
+		t.Fatalf("moveOrCopyFile() move error = %v", err)
 	}
 
 	// Verify file was moved
@@ -317,24 +318,122 @@ func TestMoveFile(t *testing.T) {
 		t.Errorf("Destination file should exist after move: %s", destFile)
 	}
 
-	// Test dry run mode
+	// Test copying file (not dry run, keeping files)
 	sourceFile2 := filepath.Join(tempDir, "source2.txt")
-	destFile2 := filepath.Join(tempDir, "dest2", "moved2.txt")
-	if err := os.WriteFile(sourceFile2, []byte("test content 2"), 0644); err != nil {
+	destFile2 := filepath.Join(tempDir, "dest2", "copied.txt")
+	if err := os.WriteFile(sourceFile2, testContent, 0644); err != nil {
 		t.Fatalf("Failed to create second source file: %v", err)
 	}
 
-	err = moveFile(sourceFile2, destFile2, true)
+	err = moveOrCopyFile(sourceFile2, destFile2, false, true)
 	if err != nil {
-		t.Fatalf("moveFile() dry run error = %v", err)
+		t.Fatalf("moveOrCopyFile() copy error = %v", err)
+	}
+
+	// Verify file was copied (both should exist)
+	if _, err := os.Stat(sourceFile2); os.IsNotExist(err) {
+		t.Errorf("Source file should still exist after copy: %s", sourceFile2)
+	}
+	if _, err := os.Stat(destFile2); os.IsNotExist(err) {
+		t.Errorf("Destination file should exist after copy: %s", destFile2)
+	}
+
+	// Verify content was copied correctly
+	copiedContent, err := os.ReadFile(destFile2)
+	if err != nil {
+		t.Fatalf("Failed to read copied file: %v", err)
+	}
+	if string(copiedContent) != string(testContent) {
+		t.Errorf("Copied content %q does not match original %q", string(copiedContent), string(testContent))
+	}
+
+	// Test dry run mode (move)
+	sourceFile3 := filepath.Join(tempDir, "source3.txt")
+	destFile3 := filepath.Join(tempDir, "dest3", "moved3.txt")
+	if err := os.WriteFile(sourceFile3, testContent, 0644); err != nil {
+		t.Fatalf("Failed to create third source file: %v", err)
+	}
+
+	err = moveOrCopyFile(sourceFile3, destFile3, true, false)
+	if err != nil {
+		t.Fatalf("moveOrCopyFile() dry run move error = %v", err)
 	}
 
 	// Verify file was NOT moved in dry run
-	if _, err := os.Stat(sourceFile2); os.IsNotExist(err) {
-		t.Errorf("Source file should still exist in dry run mode: %s", sourceFile2)
+	if _, err := os.Stat(sourceFile3); os.IsNotExist(err) {
+		t.Errorf("Source file should still exist in dry run mode: %s", sourceFile3)
 	}
-	if _, err := os.Stat(destFile2); !os.IsNotExist(err) {
-		t.Errorf("Destination file should not exist in dry run mode: %s", destFile2)
+	if _, err := os.Stat(destFile3); !os.IsNotExist(err) {
+		t.Errorf("Destination file should not exist in dry run mode: %s", destFile3)
+	}
+
+	// Test dry run mode (copy)
+	sourceFile4 := filepath.Join(tempDir, "source4.txt")
+	destFile4 := filepath.Join(tempDir, "dest4", "copied4.txt")
+	if err := os.WriteFile(sourceFile4, testContent, 0644); err != nil {
+		t.Fatalf("Failed to create fourth source file: %v", err)
+	}
+
+	err = moveOrCopyFile(sourceFile4, destFile4, true, true)
+	if err != nil {
+		t.Fatalf("moveOrCopyFile() dry run copy error = %v", err)
+	}
+
+	// Verify file was NOT copied in dry run
+	if _, err := os.Stat(sourceFile4); os.IsNotExist(err) {
+		t.Errorf("Source file should still exist in dry run mode: %s", sourceFile4)
+	}
+	if _, err := os.Stat(destFile4); !os.IsNotExist(err) {
+		t.Errorf("Destination file should not exist in dry run mode: %s", destFile4)
+	}
+}
+
+// TestCopyFile tests the copyFile function
+func TestCopyFile(t *testing.T) {
+	tempDir := t.TempDir()
+	sourceFile := filepath.Join(tempDir, "source.txt")
+	destFile := filepath.Join(tempDir, "dest.txt")
+	testContent := []byte("test content for copy")
+
+	// Create source file
+	if err := os.WriteFile(sourceFile, testContent, 0644); err != nil {
+		t.Fatalf("Failed to create source file: %v", err)
+	}
+
+	// Test copying file
+	err := copyFile(sourceFile, destFile)
+	if err != nil {
+		t.Fatalf("copyFile() error = %v", err)
+	}
+
+	// Verify both files exist
+	if _, err := os.Stat(sourceFile); os.IsNotExist(err) {
+		t.Errorf("Source file should still exist after copy: %s", sourceFile)
+	}
+	if _, err := os.Stat(destFile); os.IsNotExist(err) {
+		t.Errorf("Destination file should exist after copy: %s", destFile)
+	}
+
+	// Verify content was copied correctly
+	copiedContent, err := os.ReadFile(destFile)
+	if err != nil {
+		t.Fatalf("Failed to read copied file: %v", err)
+	}
+	if string(copiedContent) != string(testContent) {
+		t.Errorf("Copied content %q does not match original %q", string(copiedContent), string(testContent))
+	}
+
+	// Verify file permissions were copied
+	sourceInfo, err := os.Stat(sourceFile)
+	if err != nil {
+		t.Fatalf("Failed to get source file info: %v", err)
+	}
+	destInfo, err := os.Stat(destFile)
+	if err != nil {
+		t.Fatalf("Failed to get dest file info: %v", err)
+	}
+	if sourceInfo.Mode() != destInfo.Mode() {
+		t.Errorf("File permissions not copied correctly: source=%v, dest=%v", sourceInfo.Mode(), destInfo.Mode())
 	}
 }
 

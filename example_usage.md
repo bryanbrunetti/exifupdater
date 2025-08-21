@@ -110,12 +110,21 @@ If the dry run looks good, run without the `--dry-run` flag:
 ./exifupdater --dest ~/organized-photos ~/google-takeout/Takeout/Google\ Photos/
 ```
 
-### Step 3: Keep JSON Files (Optional)
+### Step 3: Alternative Options
 
-If you want to preserve the JSON metadata files:
-
+Keep JSON metadata files:
 ```bash
 ./exifupdater --keep-json --dest ~/organized-photos ~/google-takeout/Takeout/Google\ Photos/
+```
+
+Copy files instead of moving them (preserves originals):
+```bash
+./exifupdater --keep-files --dest ~/organized-photos ~/google-takeout/Takeout/Google\ Photos/
+```
+
+Combine options (copy files and keep JSON):
+```bash
+./exifupdater --keep-files --keep-json --dest ~/organized-photos ~/google-takeout/Takeout/Google\ Photos/
 ```
 
 ## Resulting Directory Structure
@@ -154,14 +163,16 @@ organized-photos/
 3. **EXIF timestamp fixing**: All processed files get their EXIF timestamps updated
 4. **Duplicate handling**: Files with the same name at the destination are skipped
 5. **Safe preview**: Dry-run mode lets you see exactly what will happen
+6. **Flexible file handling**: Choose to move files (default) or copy them (--keep-files)
 
 ## Tips
 
-- **Always backup your original files first**
+- **Always backup your original files first** (or use `--keep-files` to preserve originals)
 - **Use absolute paths** to avoid confusion
 - **Run dry-run first** to catch any issues
-- **Check available disk space** before processing large collections
+- **Check available disk space** before processing large collections (especially with `--keep-files`)
 - **Review the logs** for any files that couldn't be processed
+- **Consider `--keep-files`** if you want to preserve the original Google Takeout structure
 
 ## Troubleshooting
 
@@ -169,3 +180,4 @@ If you see errors like:
 - `Image file 'filename.jpg' not found`: The JSON file exists but the corresponding image/video is missing
 - `File already exists at destination`: A file with the same name already exists in the organized structure
 - `Error creating symlink`: Your filesystem might not support symbolic links (rare on modern systems)
+- `Error copying file`: Insufficient disk space or permission issues when using `--keep-files`
