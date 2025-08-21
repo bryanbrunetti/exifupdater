@@ -313,6 +313,134 @@ func getDateFromTimestamp(timestamp int64) (year, month, day string) {
 	return fmt.Sprintf("%04d", t.Year()), fmt.Sprintf("%02d", int(t.Month())), fmt.Sprintf("%02d", t.Day())
 }
 
+// performScan scans all non-JSON files and reports how many are missing EXIF timestamp data
+func performScan(sourceDir string) {
+	fmt.Printf("Scanning directory: %s\n", sourceDir)
+	fmt.Println("Checking for missing EXIF timestamp data...")
+	fmt.Println("Looking for: DateTimeOriginal, MediaCreateDate, CreationDate, TrackCreateDate, CreateDate, DateTimeDigitized, GPSDateStamp, DateTime")
+	fmt.Println()
+
+	// Start exiftool process
+	et, err := NewExifTool()
+	if err != nil {
+		log.Fatalf("Failed to start exiftool for scanning: %v", err)
+	}
+	defer et.Close()
+
+	var totalFiles, missingFiles int
+	var filesToCheck []string
+
+	// Collect all non-JSON files
+	err = filepath.Walk(sourceDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			log.Printf("Warning: Skipping path due to error: %s: %v", path, err)
+			return nil
+		}
+
+		if !info.IsDir() && filepath.Ext(strings.ToLower(path)) != ".json" {
+			// Skip common non-media files
+			ext := strings.ToLower(filepath.Ext(path))
+			if isMediaFile(ext) {
+				filesToCheck = append(filesToCheck, path)
+				totalFiles++
+			}
+		}
+		return nil
+	})
+
+	if err != nil {
+		log.Fatalf("Error walking directory: %v", err)
+	}
+
+	fmt.Printf("Found %d media files to check\n", totalFiles)
+	fmt.Println("Analyzing files...")
+
+	// Check each file for EXIF timestamp data
+	for i, filePath := range filesToCheck {
+		if i%100 == 0 && i > 0 {
+			fmt.Printf("Processed %d/%d files...\n", i, totalFiles)
+		}
+
+		if isMissingTimestamps(et, filePath) {
+			missingFiles++
+		}
+	}
+
+	// Report results
+	fmt.Printf("\n=== SCAN RESULTS ===\n")
+	fmt.Printf("Total media files scanned: %d\n", totalFiles)
+	fmt.Printf("Files missing ALL timestamp data: %d\n", missingFiles)
+	fmt.Printf("Files with some timestamp data: %d\n", totalFiles-missingFiles)
+
+	if totalFiles > 0 {
+		percentage := float64(missingFiles) / float64(totalFiles) * 100
+		fmt.Printf("Percentage missing timestamps: %.1f%%\n", percentage)
+	}
+
+	if missingFiles > 0 {
+		fmt.Printf("\nFiles missing timestamps would benefit from EXIF timestamp updating.\n")
+	} else {
+		fmt.Printf("\nAll files have some form of timestamp data.\n")
+	}
+}
+
+// isMediaFile checks if the file extension indicates a media file
+func isMediaFile(ext string) bool {
+	mediaExtensions := map[string]bool{
+		".jpg": true, ".jpeg": true, ".png": true, ".gif": true, ".bmp": true,
+		".tiff": true, ".tif": true, ".webp": true, ".heic": true, ".heif": true,
+		".mp4": true, ".mov": true, ".avi": true, ".mkv": true, ".wmv": true,
+		".flv": true, ".webm": true, ".m4v": true, ".3gp": true, ".mpg": true,
+		".mpeg": true, ".m2v": true, ".mts": true, ".m2ts": true,
+		".cr2": true, ".nef": true, ".arw": true, ".dng": true, ".orf": true,
+		".rw2": true, ".pef": true, ".sr2": true, ".x3f": true,
+	}
+	return mediaExtensions[ext]
+}
+
+// isMissingTimestamps checks if a file is missing all EXIF timestamp fields
+func isMissingTimestamps(et *ExifTool, filePath string) bool {
+	// Get EXIF data for timestamp fields
+	output, err := et.Execute(
+		"-DateTimeOriginal",
+		"-MediaCreateDate",
+		"-CreationDate",
+		"-TrackCreateDate",
+		"-CreateDate",
+		"-DateTimeDigitized",
+		"-GPSDateStamp",
+		"-DateTime",
+		"-s", // short output format
+		"-S", // very short output format
+		filePath,
+	)
+
+	if err != nil {
+		log.Printf("Warning: Could not read EXIF data from %s: %v", filePath, err)
+		return true // Assume missing if we can't read it
+	}
+
+	// Check if any timestamp field has a value
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		// Look for lines with timestamp data (not just field names)
+		if strings.Contains(line, ":") && len(line) > 20 {
+			// If we find any timestamp data, file is not missing all timestamps
+			parts := strings.SplitN(line, ":", 2)
+			if len(parts) == 2 && strings.TrimSpace(parts[1]) != "" && strings.TrimSpace(parts[1]) != "-" {
+				return false
+			}
+		}
+	}
+
+	return true // No valid timestamp data found
+}
+
 func main() {
 	// --- 1. Setup and Command-Line Parsing ---
 	fmt.Println("Starting EXIF timestamp updater...")
@@ -320,17 +448,21 @@ func main() {
 	keepJSON := flag.Bool("keep-json", false, "Keep JSON files after processing (don't delete them)")
 	keepFiles := flag.Bool("keep-files", false, "Copy files instead of moving them (preserves originals)")
 	dryRun := flag.Bool("dry-run", false, "Show what would be done without making any changes")
+	scanOnly := flag.Bool("scan", false, "Scan files to report how many are missing EXIF timestamp data")
 	var destDir string
 	flag.StringVar(&destDir, "dest", "", "Destination directory for organized photos")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s [options] <source_directory>\n", filepath.Base(os.Args[0]))
-		fmt.Fprintf(os.Stderr, "  source_directory  The root directory to scan for JSON files\n")
+		fmt.Fprintf(os.Stderr, "  source_directory  The root directory to scan\n")
 		fmt.Fprintf(os.Stderr, "\nOptions:\n")
 		flag.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "\nThe destination directory will be organized as:\n")
 		fmt.Fprintf(os.Stderr, "  <dest>/ALL_PHOTOS/<year>/<month>/<day>/<filename>\n")
 		fmt.Fprintf(os.Stderr, "  <dest>/<album_name>/<filename> (symlinks to ALL_PHOTOS)\n")
+		fmt.Fprintf(os.Stderr, "\nScan mode analyzes files for missing EXIF timestamp data:\n")
+		fmt.Fprintf(os.Stderr, "  DateTimeOriginal, MediaCreateDate, CreationDate, TrackCreateDate,\n")
+		fmt.Fprintf(os.Stderr, "  CreateDate, DateTimeDigitized, GPSDateStamp, DateTime\n")
 	}
 	flag.Parse()
 
@@ -339,9 +471,9 @@ func main() {
 		log.Fatal("Error: No source directory specified")
 	}
 
-	if destDir == "" {
+	if !*scanOnly && destDir == "" {
 		flag.Usage()
-		log.Fatal("Error: Destination directory (-dest) is required")
+		log.Fatal("Error: Destination directory (-dest) is required (not needed for --scan mode)")
 	}
 
 	sourceDir := flag.Arg(0)
@@ -356,15 +488,20 @@ func main() {
 		log.Fatalf("Error: Provided source path is not a directory: %s", sourceDir)
 	}
 
+	// Check if exiftool is available
+	if _, err := exec.LookPath("exiftool"); err != nil {
+		log.Fatalf("Error: 'exiftool' command not found. Please ensure it is installed and in your system's PATH.")
+	}
+
+	// Handle scan mode
+	if *scanOnly {
+		performScan(sourceDir)
+		return
+	}
+
 	// Create destination directory if it doesn't exist
 	if err := ensureDirectory(destDir, *dryRun); err != nil {
 		log.Fatalf("Error: Could not create destination directory %s: %v", destDir, err)
-	}
-
-	if !*dryRun {
-		if _, err := exec.LookPath("exiftool"); err != nil {
-			log.Fatalf("Error: 'exiftool' command not found. Please ensure it is installed and in your system's PATH.")
-		}
 	}
 
 	if *dryRun {

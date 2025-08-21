@@ -81,9 +81,39 @@ google-takeout/
 
 ## Running the Tool
 
-### Step 1: Preview with Dry Run
+### Step 1: Scan to Understand Your Collection
 
-First, always run with `--dry-run` to see what would happen:
+First, scan your files to see how many need EXIF timestamp updates:
+
+```bash
+./exifupdater --scan ~/google-takeout/Takeout/Google\ Photos/
+```
+
+**Expected output:**
+```
+Starting EXIF timestamp updater...
+Scanning directory: /Users/you/google-takeout/Takeout/Google Photos/
+Checking for missing EXIF timestamp data...
+Looking for: DateTimeOriginal, MediaCreateDate, CreationDate, TrackCreateDate, CreateDate, DateTimeDigitized, GPSDateStamp, DateTime
+
+Found 1247 media files to check
+Analyzing files...
+Processed 100/1247 files...
+Processed 200/1247 files...
+...
+
+=== SCAN RESULTS ===
+Total media files scanned: 1247
+Files missing ALL timestamp data: 892
+Files with some timestamp data: 355
+Percentage missing timestamps: 71.5%
+
+Files missing timestamps would benefit from EXIF timestamp updating.
+```
+
+### Step 2: Preview with Dry Run
+
+Next, run with `--dry-run` to see what would happen:
 
 ```bash
 ./exifupdater --dry-run --dest ~/organized-photos ~/google-takeout/Takeout/Google\ Photos/
@@ -102,7 +132,7 @@ Worker 2: [DRY RUN] Would update EXIF for /Users/you/google-takeout/Takeout/Goog
 ...
 ```
 
-### Step 2: Actually Process the Files
+### Step 3: Actually Process the Files
 
 If the dry run looks good, run without the `--dry-run` flag:
 
@@ -110,7 +140,7 @@ If the dry run looks good, run without the `--dry-run` flag:
 ./exifupdater --dest ~/organized-photos ~/google-takeout/Takeout/Google\ Photos/
 ```
 
-### Step 3: Alternative Options
+### Step 4: Alternative Options
 
 Keep JSON metadata files:
 ```bash
@@ -158,15 +188,17 @@ organized-photos/
 
 ## Key Features Demonstrated
 
-1. **Date-based organization**: Files are organized by the date they were taken (from EXIF timestamp)
-2. **Album preservation**: Albums are recreated as directories with symbolic links
-3. **EXIF timestamp fixing**: All processed files get their EXIF timestamps updated
-4. **Smart duplicate handling**: Files with the same name at the destination are skipped, but album symlinks are still created
-5. **Safe preview**: Dry-run mode lets you see exactly what will happen
-6. **Flexible file handling**: Choose to move files (default) or copy them (--keep-files)
+1. **Analysis capability**: Scan mode helps you understand your collection before processing
+2. **Date-based organization**: Files are organized by the date they were taken (from EXIF timestamp)
+3. **Album preservation**: Albums are recreated as directories with symbolic links
+4. **EXIF timestamp fixing**: All processed files get their EXIF timestamps updated
+5. **Smart duplicate handling**: Files with the same name at the destination are skipped, but album symlinks are still created
+6. **Safe preview**: Dry-run mode lets you see exactly what will happen
+7. **Flexible file handling**: Choose to move files (default) or copy them (--keep-files)
 
 ## Tips
 
+- **Start with `--scan`** to understand your collection and how many files need processing
 - **Always backup your original files first** (or use `--keep-files` to preserve originals)
 - **Use absolute paths** to avoid confusion
 - **Run dry-run first** to catch any issues
@@ -181,3 +213,16 @@ If you see errors like:
 - `File already exists at destination`: A file with the same name already exists in the organized structure, but album symlinks will still be created/verified
 - `Error creating symlink`: Your filesystem might not support symbolic links (rare on modern systems)
 - `Error copying file`: Insufficient disk space or permission issues when using `--keep-files`
+- `Scan shows 0% missing timestamps`: Your files already have proper EXIF data and may not need processing
+
+## Workflow Recommendations
+
+### For Large Collections
+1. **Scan first**: `./exifupdater --scan ~/google-takeout` to understand scope
+2. **Dry run**: `./exifupdater --dry-run --dest ~/organized --keep-files ~/google-takeout`
+3. **Process**: `./exifupdater --dest ~/organized --keep-files ~/google-takeout`
+
+### For Small Collections or Testing
+1. **Scan first**: `./exifupdater --scan ~/test-photos`
+2. **Dry run**: `./exifupdater --dry-run --dest ~/test-organized ~/test-photos`
+3. **Process**: `./exifupdater --dest ~/test-organized ~/test-photos`

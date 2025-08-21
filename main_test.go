@@ -569,6 +569,117 @@ func TestFileAlreadyExistsScenario(t *testing.T) {
 	}
 }
 
+// TestIsMediaFile tests the isMediaFile function
+func TestIsMediaFile(t *testing.T) {
+	tests := []struct {
+		name string
+		ext  string
+		want bool
+	}{
+		{"JPEG image", ".jpg", true},
+		{"PNG image", ".png", true},
+		{"MP4 video", ".mp4", true},
+		{"MOV video", ".mov", true},
+		{"RAW image", ".cr2", true},
+		{"HEIC image", ".heic", true},
+		{"JSON file", ".json", false},
+		{"PDF document", ".pdf", false},
+		{"Text file", ".txt", false},
+		{"Word document", ".docx", false},
+		{"Empty extension", "", false},
+		{"Uppercase extension", ".JPG", false}, // function expects lowercase
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isMediaFile(tt.ext); got != tt.want {
+				t.Errorf("isMediaFile(%q) = %v, want %v", tt.ext, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestIsMissingTimestamps tests the isMissingTimestamps function
+func TestIsMissingTimestamps(t *testing.T) {
+	// This test requires a mock or we can test the logic with known outputs
+	tempDir := t.TempDir()
+
+	// Create a test file
+	testFile := filepath.Join(tempDir, "test.jpg")
+	if err := os.WriteFile(testFile, []byte("fake image data"), 0644); err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	et, err := NewExifTool()
+	if err != nil {
+		t.Fatalf("Failed to create ExifTool: %v", err)
+	}
+	defer et.Close()
+
+	// Test with a file that should be missing timestamps (empty/fake file)
+	result := isMissingTimestamps(et, testFile)
+	// Should be true since our fake file has no EXIF data
+	if !result {
+		t.Errorf("isMissingTimestamps() = %v, want true for file with no EXIF data", result)
+	}
+}
+
+// TestScanFunctionality tests the scan-related functions
+func TestScanFunctionality(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// Create various test files
+	testFiles := []struct {
+		name    string
+		isMedia bool
+	}{
+		{"photo.jpg", true},
+		{"video.mp4", true},
+		{"document.pdf", false},
+		{"data.json", false},
+		{"image.png", true},
+		{"readme.txt", false},
+	}
+
+	for _, tf := range testFiles {
+		filePath := filepath.Join(tempDir, tf.name)
+		if err := os.WriteFile(filePath, []byte("test content"), 0644); err != nil {
+			t.Fatalf("Failed to create test file %s: %v", tf.name, err)
+		}
+	}
+
+	// Count expected media files
+	expectedMediaFiles := 0
+	for _, tf := range testFiles {
+		if tf.isMedia {
+			expectedMediaFiles++
+		}
+	}
+
+	// Test the file collection logic (simulate what performScan does)
+	var filesToCheck []string
+	err := filepath.Walk(tempDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if !info.IsDir() && filepath.Ext(strings.ToLower(path)) != ".json" {
+			ext := strings.ToLower(filepath.Ext(path))
+			if isMediaFile(ext) {
+				filesToCheck = append(filesToCheck, path)
+			}
+		}
+		return nil
+	})
+
+	if err != nil {
+		t.Fatalf("Error walking directory: %v", err)
+	}
+
+	if len(filesToCheck) != expectedMediaFiles {
+		t.Errorf("Expected %d media files, found %d", expectedMediaFiles, len(filesToCheck))
+	}
+}
+
 // TestMain sets up and tears down any test dependencies
 func TestMain(m *testing.M) {
 	// Check if exiftool is installed

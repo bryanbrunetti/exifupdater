@@ -12,6 +12,7 @@ This tool fixes missing EXIF timestamps from photos and videos exported from Goo
 - Can optionally keep or delete JSON files after processing
 - Can copy files instead of moving them (preserving originals)
 - Dry-run mode to preview changes without making modifications
+- Scan mode to analyze files for missing EXIF timestamp data
 - Efficiently processes large numbers of files
 
 ## Prerequisites
@@ -55,36 +56,47 @@ Options:
         Copy files instead of moving them (preserves originals)
   -keep-json
         Keep JSON files after processing (don't delete them)
+  -scan
+        Scan files to report how many are missing EXIF timestamp data
 
 The destination directory will be organized as:
   <dest>/ALL_PHOTOS/<year>/<month>/<day>/<filename>
   <dest>/<album_name>/<filename> (symlinks to ALL_PHOTOS)
+
+Scan mode analyzes files for missing EXIF timestamp data:
+  DateTimeOriginal, MediaCreateDate, CreationDate, TrackCreateDate,
+  CreateDate, DateTimeDigitized, GPSDateStamp, DateTime
 ```
 
 ### Examples
 
-Process files and organize them (dry-run first to preview):
+**Scan files to see how many need EXIF timestamp updates:**
+```bash
+./exifupdater --scan ~/google-takeout
+```
+
+**Process files and organize them (dry-run first to preview):**
 ```bash
 # Preview changes without making modifications
-./exifupdater -dry-run -dest /organized/photos /path/to/google-takeout
+./exifupdater --dry-run --dest ~/organized-photos ~/google-takeout
 
 # Actually process and organize the files
-./exifupdater -dest /organized/photos /path/to/google-takeout
+./exifupdater --dest ~/organized-photos ~/google-takeout
 ```
 
-Process files and keep JSON metadata:
+**Process files and keep JSON metadata:**
 ```bash
-./exifupdater --keep-json --dest /organized/photos /path/to/google-takeout
+./exifupdater --keep-json --dest ~/organized-photos ~/google-takeout
 ```
 
-Process files by copying instead of moving (preserves originals):
+**Process files by copying instead of moving (preserves originals):**
 ```bash
-./exifupdater --keep-files --dest /organized/photos /path/to/google-takeout
+./exifupdater --keep-files --dest ~/organized-photos ~/google-takeout
 ```
 
-Combine options (copy files and keep JSON):
+**Combine options (copy files and keep JSON):**
 ```bash
-./exifupdater --keep-files --keep-json --dest /organized/photos /path/to/google-takeout
+./exifupdater --keep-files --keep-json --dest ~/organized-photos ~/google-takeout
 ```
 
 ## Directory Structure
@@ -115,6 +127,8 @@ The tool creates an organized directory structure in the destination folder:
 
 ## How It Works
 
+### Normal Processing Mode
+
 1. The tool scans the specified source directory for `.json` files containing metadata from Google Takeout
 2. For each JSON file found, it looks for the corresponding image/video file
 3. It reads the timestamp from the JSON file and updates the EXIF data using exiftool
@@ -123,6 +137,15 @@ The tool creates an organized directory structure in the destination folder:
    - Creates an album directory named after the title
    - Creates a symbolic link from the album to the organized file location
 6. Optionally deletes the JSON file after successful processing
+
+### Scan Mode (`--scan`)
+
+1. The tool scans the specified directory for all media files (photos and videos)
+2. For each media file, it checks for the presence of EXIF timestamp fields:
+   - DateTimeOriginal, MediaCreateDate, CreationDate, TrackCreateDate
+   - CreateDate, DateTimeDigitized, GPSDateStamp, DateTime
+3. Files missing ALL of these timestamp fields are counted as needing updates
+4. Provides a summary report showing total files vs files needing timestamp updates
 
 The tool handles various filename variations including:
 - Truncated filenames (48, 47, 46 character limits)
@@ -198,11 +221,12 @@ go test -coverprofile=coverage.out && go tool cover -html=coverage.out
 
 ## Best Practices
 
-1. **Always run with --dry-run first** to preview what will happen
-2. **Make backups** of your original Google Takeout files before processing (or use `--keep-files`)
-3. **Use absolute paths** for source and destination directories
-4. **Check disk space** before processing large collections (especially when using `--keep-files`)
-5. **Review the logs** for any files that couldn't be processed
+1. **Start with --scan** to understand how many files need timestamp updates
+2. **Always run with --dry-run first** to preview what will happen
+3. **Make backups** of your original Google Takeout files before processing (or use `--keep-files`)
+4. **Use absolute paths** for source and destination directories
+5. **Check disk space** before processing large collections (especially when using `--keep-files`)
+6. **Review the logs** for any files that couldn't be processed
 
 ## Troubleshooting
 
@@ -213,11 +237,13 @@ go test -coverprofile=coverage.out && go tool cover -html=coverage.out
 3. **Files not found**: Check the filename variations - the tool handles many cases but some edge cases might exist
 4. **Symlink creation fails**: Ensure the filesystem supports symbolic links
 5. **"File already exists at destination"**: The file is already organized, but album symlinks will still be created/verified
+6. **Scan shows 0% missing timestamps**: Your files may already have proper EXIF data and don't need processing
 
 ### Getting Help
 
 If you encounter issues:
-1. Run with `--dry-run` to see what the tool would do
-2. Check the detailed log output for specific error messages
-3. Verify your source directory structure matches Google Takeout format
-4. Ensure sufficient disk space and permissions
+1. Start with `--scan` to understand your file collection
+2. Run with `--dry-run` to see what the tool would do
+3. Check the detailed log output for specific error messages
+4. Verify your source directory structure matches Google Takeout format
+5. Ensure sufficient disk space and permissions
