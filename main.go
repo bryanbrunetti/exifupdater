@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -78,7 +79,6 @@ func NewExifTool() (*ExifTool, error) {
 
 // Execute sends a command to the running exiftool process.
 func (et *ExifTool) Execute(args ...string) (string, error) {
-	log.Printf("Executing exiftool with args: %v", args)
 	// Write arguments to the process, one per line.
 	for _, arg := range args {
 		if _, err := fmt.Fprintln(et.stdin, arg); err != nil {
@@ -95,7 +95,6 @@ func (et *ExifTool) Execute(args ...string) (string, error) {
 	var output strings.Builder
 	for et.stdout.Scan() {
 		line := et.stdout.Text()
-		log.Printf("Read line: %q", line)
 		if strings.HasPrefix(line, "{ready}") {
 			break
 		}
@@ -108,7 +107,6 @@ func (et *ExifTool) Execute(args ...string) (string, error) {
 	}
 
 	result := output.String()
-	log.Printf("Command result: %q", result)
 	return result, nil
 }
 
@@ -318,6 +316,95 @@ type scanResult struct {
 	missing  bool
 }
 
+// progressBar displays a progress bar with ETA
+type progressBar struct {
+	total     int64
+	current   int64
+	startTime time.Time
+	mutex     sync.Mutex
+}
+
+// newProgressBar creates a new progress bar
+func newProgressBar(total int) *progressBar {
+	return &progressBar{
+		total:     int64(total),
+		current:   0,
+		startTime: time.Now(),
+	}
+}
+
+// update increments the progress and displays the bar
+func (pb *progressBar) update() {
+	atomic.AddInt64(&pb.current, 1)
+	current := atomic.LoadInt64(&pb.current)
+
+	if current%5 == 0 || current == pb.total {
+		pb.display(current)
+	}
+}
+
+// display shows the current progress bar
+func (pb *progressBar) display(current int64) {
+	pb.mutex.Lock()
+	defer pb.mutex.Unlock()
+
+	percent := float64(current) / float64(pb.total) * 100
+	elapsed := time.Since(pb.startTime)
+
+	// Calculate ETA
+	var eta string
+	if current > 0 && current < pb.total {
+		avgTimePerFile := elapsed.Seconds() / float64(current)
+		remaining := float64(pb.total - current)
+		etaSeconds := avgTimePerFile * remaining
+		etaDuration := time.Duration(etaSeconds * float64(time.Second))
+		eta = fmt.Sprintf("ETA: %s", formatDuration(etaDuration))
+	} else if current == pb.total {
+		eta = "Complete!"
+	} else {
+		eta = "ETA: calculating..."
+	}
+
+	// Create progress bar
+	barWidth := 30
+	filledWidth := int(float64(barWidth) * percent / 100)
+
+	bar := "["
+	for i := 0; i < barWidth; i++ {
+		if i < filledWidth {
+			bar += "="
+		} else if i == filledWidth && current < pb.total {
+			bar += ">"
+		} else {
+			bar += " "
+		}
+	}
+	bar += "]"
+
+	// Display progress line with consistent spacing
+	fmt.Printf("\r%s %d/%d (%.1f%%) | Elapsed: %s | %-20s",
+		bar, current, pb.total, percent, formatDuration(elapsed), eta)
+
+	if current == pb.total {
+		fmt.Printf("\n") // New line when complete
+	}
+}
+
+// formatDuration formats duration in a human-readable way
+func formatDuration(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%.0fs", d.Seconds())
+	} else if d < time.Hour {
+		minutes := int(d.Minutes())
+		seconds := int(d.Seconds()) - 60*minutes
+		return fmt.Sprintf("%dm%ds", minutes, seconds)
+	} else {
+		hours := int(d.Hours())
+		minutes := int(d.Minutes()) - 60*hours
+		return fmt.Sprintf("%dh%dm", hours, minutes)
+	}
+}
+
 // performScan scans all non-JSON files and reports how many are missing EXIF timestamp data
 func performScan(sourceDir string) {
 	fmt.Printf("Scanning directory: %s\n", sourceDir)
@@ -360,7 +447,11 @@ func performScan(sourceDir string) {
 
 	// --- Worker Pool for Scanning ---
 	numWorkers := runtime.NumCPU()
-	fmt.Printf("Using %d workers for scanning...\n", numWorkers)
+	fmt.Printf("Using %d workers for scanning...\n\n", numWorkers)
+
+	// Initialize progress bar
+	pb := newProgressBar(totalFiles)
+	pb.display(0)
 
 	jobs := make(chan string, numWorkers)
 	results := make(chan scanResult, totalFiles)
@@ -369,7 +460,7 @@ func performScan(sourceDir string) {
 	// Start workers
 	for i := 1; i <= numWorkers; i++ {
 		wg.Add(1)
-		go scanWorker(i, &wg, jobs, results)
+		go scanWorker(i, &wg, jobs, results, pb)
 	}
 
 	// Send jobs
@@ -386,17 +477,11 @@ func performScan(sourceDir string) {
 		close(results)
 	}()
 
-	// Collect results and show progress
+	// Collect results
 	var missingFiles int
-	processedFiles := 0
 	for result := range results {
 		if result.missing {
 			missingFiles++
-		}
-		processedFiles++
-
-		if processedFiles%100 == 0 || processedFiles == totalFiles {
-			fmt.Printf("Processed %d/%d files...\n", processedFiles, totalFiles)
 		}
 	}
 
@@ -419,7 +504,7 @@ func performScan(sourceDir string) {
 }
 
 // scanWorker processes files for timestamp analysis
-func scanWorker(id int, wg *sync.WaitGroup, jobs <-chan string, results chan<- scanResult) {
+func scanWorker(id int, wg *sync.WaitGroup, jobs <-chan string, results chan<- scanResult, pb *progressBar) {
 	defer wg.Done()
 
 	// Each worker gets its own persistent exiftool process
@@ -436,6 +521,7 @@ func scanWorker(id int, wg *sync.WaitGroup, jobs <-chan string, results chan<- s
 			filePath: filePath,
 			missing:  missing,
 		}
+		pb.update()
 	}
 }
 

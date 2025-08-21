@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // TestNewExifTool tests the creation of a new ExifTool instance
@@ -681,6 +682,52 @@ func TestScanFunctionality(t *testing.T) {
 	}
 }
 
+// TestProgressBar tests the progress bar functionality
+func TestProgressBar(t *testing.T) {
+	total := 10
+	pb := newProgressBar(total)
+
+	// Test initial state
+	if pb.total != int64(total) {
+		t.Errorf("Expected total %d, got %d", total, pb.total)
+	}
+	if pb.current != 0 {
+		t.Errorf("Expected current 0, got %d", pb.current)
+	}
+
+	// Test updates
+	for i := 0; i < total; i++ {
+		pb.update()
+	}
+
+	if pb.current != int64(total) {
+		t.Errorf("Expected current %d, got %d", total, pb.current)
+	}
+}
+
+// TestFormatDuration tests the formatDuration function
+func TestFormatDuration(t *testing.T) {
+	tests := []struct {
+		name     string
+		duration time.Duration
+		want     string
+	}{
+		{"30 seconds", 30 * time.Second, "30s"},
+		{"1 minute", 60 * time.Second, "1m0s"},
+		{"1 minute 30 seconds", 90 * time.Second, "1m30s"},
+		{"2 hours", 2 * time.Hour, "2h0m"},
+		{"2 hours 30 minutes", 2*time.Hour + 30*time.Minute, "2h30m"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := formatDuration(tt.duration); got != tt.want {
+				t.Errorf("formatDuration() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 // TestScanWorkerFunctionality tests the multi-worker scan functionality
 func TestScanWorkerFunctionality(t *testing.T) {
 	tempDir := t.TempDir()
@@ -740,7 +787,8 @@ func TestScanWorkerFunctionality(t *testing.T) {
 	// Start workers
 	for i := 1; i <= numWorkers; i++ {
 		wg.Add(1)
-		go scanWorker(i, &wg, jobs, results)
+		pb := newProgressBar(len(filesToCheck)) // Create a progress bar for testing
+		go scanWorker(i, &wg, jobs, results, pb)
 	}
 
 	// Send jobs

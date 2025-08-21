@@ -12,7 +12,7 @@ This tool fixes missing EXIF timestamps from photos and videos exported from Goo
 - Can optionally keep or delete JSON files after processing
 - Can copy files instead of moving them (preserving originals)
 - Dry-run mode to preview changes without making modifications
-- Scan mode to analyze files for missing EXIF timestamp data (multi-worker for performance)
+- Scan mode to analyze files for missing EXIF timestamp data (multi-worker with progress bar and ETA)
 - Efficiently processes large numbers of files
 
 ## Prerequisites
@@ -73,6 +73,22 @@ Scan mode analyzes files for missing EXIF timestamp data:
 **Scan files to see how many need EXIF timestamp updates:**
 ```bash
 ./exifupdater --scan ~/google-takeout
+```
+
+**Example scan output with progress bar:**
+```
+Starting EXIF timestamp updater...
+Scanning directory: /Users/you/google-takeout
+Found 1247 media files to check
+Using 10 workers for scanning...
+
+[===================>          ] 892/1247 (71.5%) | Elapsed: 1m23s | ETA: 42s
+
+=== SCAN RESULTS ===
+Total media files scanned: 1247
+Files missing ALL timestamp data: 892
+Files with some timestamp data: 355
+Percentage missing timestamps: 71.5%
 ```
 
 **Process files and organize them (dry-run first to preview):**
@@ -142,11 +158,12 @@ The tool creates an organized directory structure in the destination folder:
 
 1. The tool scans the specified directory for all media files (photos and videos)
 2. Uses multiple worker processes (based on CPU cores) to analyze files in parallel for better performance
-3. For each media file, it checks for the presence of EXIF timestamp fields:
+3. Displays a real-time progress bar with elapsed time and estimated time to completion (ETA)
+4. For each media file, it checks for the presence of EXIF timestamp fields:
    - DateTimeOriginal, MediaCreateDate, CreationDate, TrackCreateDate
    - CreateDate, DateTimeDigitized, GPSDateStamp, DateTime
-4. Files missing ALL of these timestamp fields are counted as needing updates
-5. Provides a summary report showing total files vs files needing timestamp updates
+5. Files missing ALL of these timestamp fields are counted as needing updates
+6. Provides a summary report showing total files vs files needing timestamp updates
 
 The tool handles various filename variations including:
 - Truncated filenames (48, 47, 46 character limits)

@@ -89,7 +89,7 @@ First, scan your files to see how many need EXIF timestamp updates:
 ./exifupdater --scan ~/google-takeout/Takeout/Google\ Photos/
 ```
 
-**Expected output:**
+**Expected output with progress bar:**
 ```
 Starting EXIF timestamp updater...
 Scanning directory: /Users/you/google-takeout/Takeout/Google Photos/
@@ -98,9 +98,9 @@ Looking for: DateTimeOriginal, MediaCreateDate, CreationDate, TrackCreateDate, C
 
 Found 1247 media files to check
 Analyzing files...
-Processed 100/1247 files...
-Processed 200/1247 files...
-...
+Using 10 workers for scanning...
+
+[===================>          ] 892/1247 (71.5%) | Elapsed: 1m23s | ETA: 42s
 
 === SCAN RESULTS ===
 Total media files scanned: 1247
@@ -189,16 +189,19 @@ organized-photos/
 ## Key Features Demonstrated
 
 1. **Analysis capability**: Scan mode helps you understand your collection before processing
-2. **Date-based organization**: Files are organized by the date they were taken (from EXIF timestamp)
-3. **Album preservation**: Albums are recreated as directories with symbolic links
-4. **EXIF timestamp fixing**: All processed files get their EXIF timestamps updated
-5. **Smart duplicate handling**: Files with the same name at the destination are skipped, but album symlinks are still created
-6. **Safe preview**: Dry-run mode lets you see exactly what will happen
-7. **Flexible file handling**: Choose to move files (default) or copy them (--keep-files)
+2. **Real-time progress tracking**: Progress bar with ETA shows scanning progress for large collections
+3. **Multi-worker performance**: Parallel processing speeds up scanning significantly
+4. **Date-based organization**: Files are organized by the date they were taken (from EXIF timestamp)
+5. **Album preservation**: Albums are recreated as directories with symbolic links
+6. **EXIF timestamp fixing**: All processed files get their EXIF timestamps updated
+7. **Smart duplicate handling**: Files with the same name at the destination are skipped, but album symlinks are still created
+8. **Safe preview**: Dry-run mode lets you see exactly what will happen
+9. **Flexible file handling**: Choose to move files (default) or copy them (--keep-files)
 
 ## Tips
 
 - **Start with `--scan`** to understand your collection and how many files need processing
+- **Watch the progress bar** during scanning to estimate completion time for large collections
 - **Always backup your original files first** (or use `--keep-files` to preserve originals)
 - **Use absolute paths** to avoid confusion
 - **Run dry-run first** to catch any issues
