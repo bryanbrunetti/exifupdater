@@ -1,231 +1,352 @@
-# Example Usage
+# EXIF Updater - Example Usage
 
-This document demonstrates how to use the updated EXIF timestamp updater with its new directory organization and album features.
+This document provides detailed examples of how to use the EXIF Updater tool in its three different modes.
 
-## Sample Directory Structure
-
-Let's say you have Google Takeout data that looks like this:
-
-```
-google-takeout/
-├── Takeout/
-│   └── Google Photos/
-│       ├── Family Vacation 2023/
-│       │   ├── IMG_1234.jpg
-│       │   ├── IMG_1234.jpg.json
-│       │   ├── VID_5678.mp4
-│       │   ├── VID_5678.mp4.json
-│       │   └── metadata.json
-│       ├── Birthday Party/
-│       │   ├── IMG_9876.jpg
-│       │   ├── IMG_9876.jpg.json
-│       │   └── metadata.json
-│       └── Random Photos/
-│           ├── IMG_4321.jpg
-│           ├── IMG_4321.jpg.json
-│           ├── IMG_8765.jpg
-│           └── IMG_8765.jpg.json
-```
-
-### Sample JSON Files
-
-**IMG_1234.jpg.json:**
-```json
-{
-  "title": "IMG_1234.jpg",
-  "description": "",
-  "imageViews": "0",
-  "creationTime": {
-    "timestamp": "1672531200",
-    "formatted": "Jan 1, 2023, 12:00:00 AM UTC"
-  },
-  "photoTakenTime": {
-    "timestamp": "1672531200",
-    "formatted": "Jan 1, 2023, 12:00:00 AM UTC"
-  },
-  "geoData": {
-    "latitude": 0.0,
-    "longitude": 0.0,
-    "altitude": 0.0,
-    "latitudeSpan": 0.0,
-    "longitudeSpan": 0.0
-  }
-}
-```
-
-**Family Vacation 2023/metadata.json:**
-```json
-{
-  "title": "Family Vacation 2023",
-  "description": "Our summer trip to the beach",
-  "access": "",
-  "creationTime": {
-    "timestamp": "1672531200",
-    "formatted": "Jan 1, 2023, 12:00:00 AM UTC"
-  }
-}
-```
-
-**Birthday Party/metadata.json:**
-```json
-{
-  "title": "Birthday Party",
-  "description": "Sarah's 10th birthday celebration",
-  "access": "",
-  "creationTime": {
-    "timestamp": "1675209600",
-    "formatted": "Feb 1, 2023, 12:00:00 AM UTC"
-  }
-}
-```
-
-## Running the Tool
-
-### Step 1: Scan to Understand Your Collection
-
-First, scan your files to see how many need EXIF timestamp updates:
+## Quick Start
 
 ```bash
-./exifupdater --scan ~/google-takeout/Takeout/Google\ Photos/
+# 1. Scan your Google Takeout data
+./exifupdater -scan ~/Downloads/takeout-20240101-001234
+
+# 2. Update EXIF timestamps (if needed)
+./exifupdater -update ~/Downloads/takeout-20240101-001234
+
+# 3. Organize photos into structured directories
+./exifupdater -sort -dest ~/organized-photos ~/Downloads/takeout-20240101-001234
 ```
 
-**Expected output with progress bar:**
+## Mode 1: Scan - Analyze Your Collection
+
+### Basic Scanning
+
+```bash
+# Scan all media files for missing EXIF timestamps
+./exifupdater -scan ~/google-takeout
 ```
-Starting EXIF timestamp updater...
-Scanning directory: /Users/you/google-takeout/Takeout/Google Photos/
-Checking for missing EXIF timestamp data...
-Looking for: DateTimeOriginal, MediaCreateDate, CreationDate, TrackCreateDate, CreateDate, DateTimeDigitized, GPSDateStamp, DateTime
 
-Found 1247 media files to check
-Analyzing files...
-Using 10 workers for scanning...
+**Example Output:**
+```
+EXIF Updater - Multi-mode photo organization tool
 
-[===================>          ] 892/1247 (71.5%) | Elapsed: 1m23s | ETA: 42s
+Scanning directory: /Users/john/google-takeout
+Found 3,247 media files to check
+Using 8 workers for scanning...
+
+[==============================] 3247/3247 (100.0%) | Elapsed: 2m15s
 
 === SCAN RESULTS ===
-Total media files scanned: 1247
-Files missing ALL timestamp data: 892
-Files with some timestamp data: 355
-Percentage missing timestamps: 71.5%
-
-Files missing timestamps would benefit from EXIF timestamp updating.
+Total media files scanned: 3247
+Files missing ALL timestamp data: 1,892
+Files with some timestamp data: 1,355
+Percentage missing timestamps: 58.3%
 ```
 
-### Step 2: Preview with Dry Run
+### Understanding Scan Results
 
-Next, run with `--dry-run` to see what would happen:
+- **Files missing ALL timestamp data**: These files have no EXIF timestamp information and would benefit from the update mode
+- **Files with some timestamp data**: These files have at least one timestamp field populated
+- **Log file**: A timestamped log file `missing_timestamps_YYYYMMDD_HHMMSS.log` is created with paths to all problematic files
+
+### When to Use Scan Mode
+
+- Before processing a new Google Takeout archive
+- To assess the scope of EXIF issues in your collection
+- To verify results after running update mode
+
+## Mode 2: Update - Fix EXIF Timestamps
+
+### Preview Updates (Recommended First Step)
 
 ```bash
-./exifupdater --dry-run --dest ~/organized-photos ~/google-takeout/Takeout/Google\ Photos/
+# See what would be updated without making changes
+./exifupdater -update --dry-run ~/google-takeout
 ```
 
-**Expected output:**
+**Example Output:**
 ```
-Starting EXIF timestamp updater...
-DRY RUN MODE: No files will be modified
-Worker 1: [DRY RUN] Would update EXIF for /Users/you/google-takeout/Takeout/Google Photos/Family Vacation 2023/IMG_1234.jpg
-Worker 1: [DRY RUN] Would move file: /Users/you/google-takeout/Takeout/Google Photos/Family Vacation 2023/IMG_1234.jpg -> /Users/you/organized-photos/ALL_PHOTOS/2023/01/01/IMG_1234.jpg
-Worker 1: [DRY RUN] Would create directory: /Users/you/organized-photos/Family Vacation 2023
-Worker 1: [DRY RUN] Would create symlink: /Users/you/organized-photos/Family Vacation 2023/IMG_1234.jpg -> ../ALL_PHOTOS/2023/01/01/IMG_1234.jpg
-Worker 1: [DRY RUN] Would delete JSON file /Users/you/google-takeout/Takeout/Google Photos/Family Vacation 2023/IMG_1234.jpg.json
-Worker 2: [DRY RUN] Would update EXIF for /Users/you/google-takeout/Takeout/Google Photos/Birthday Party/IMG_9876.jpg
-...
+EXIF Updater - Multi-mode photo organization tool
+
+🔍 DRY RUN MODE: No files will be modified
+
+UPDATE MODE: Updating EXIF timestamps from JSON metadata...
+Found 1,247 JSON files to process
+[DRY RUN] Would update EXIF for /path/to/IMG_1234.jpg
+[DRY RUN] Would delete JSON file /path/to/IMG_1234.jpg.json
+[DRY RUN] Would update EXIF for /path/to/VID_5678.mp4
+[DRY RUN] Would delete JSON file /path/to/VID_5678.mp4.json
+[==============================] 1247/1247 (100.0%) | Elapsed: 45s
+Update complete! Processed 1,247 JSON files.
 ```
 
-### Step 3: Actually Process the Files
-
-If the dry run looks good, run without the `--dry-run` flag:
+### Actual Updates
 
 ```bash
-./exifupdater --dest ~/organized-photos ~/google-takeout/Takeout/Google\ Photos/
+# Update EXIF timestamps from JSON metadata
+./exifupdater -update ~/google-takeout
 ```
 
-### Step 4: Alternative Options
+### Keep JSON Files
 
-Keep JSON metadata files:
 ```bash
-./exifupdater --keep-json --dest ~/organized-photos ~/google-takeout/Takeout/Google\ Photos/
+# Update timestamps but preserve the JSON metadata files
+./exifupdater -update --keep-json ~/google-takeout
 ```
 
-Copy files instead of moving them (preserves originals):
+### When to Use Update Mode
+
+- After scanning shows files missing EXIF timestamps
+- Before organizing files (sort mode works better with proper timestamps)
+- When you want to fix EXIF data in-place without reorganizing
+
+## Mode 3: Sort - Organize Your Photos
+
+### Preview Organization (Always Recommended First)
+
 ```bash
-./exifupdater --keep-files --dest ~/organized-photos ~/google-takeout/Takeout/Google\ Photos/
+# See how files would be organized
+./exifupdater -sort --dry-run --dest ~/organized-photos ~/google-takeout
 ```
 
-Combine options (copy files and keep JSON):
+**Example Output:**
+```
+EXIF Updater - Multi-mode photo organization tool
+
+🔍 DRY RUN MODE: No files will be modified
+
+SORT MODE: Organizing files into date-based structure with album symlinks...
+[DRY RUN] Would create directory: /Users/john/organized-photos
+Found 1,247 JSON files to process
+[DRY RUN] Would move file: /path/to/IMG_1234.jpg -> /Users/john/organized-photos/2023/01/15/IMG_1234.jpg
+[DRY RUN] Would create directory: /Users/john/organized-photos/Family Vacation
+[DRY RUN] Would create symlink: /Users/john/organized-photos/Family Vacation/IMG_1234.jpg -> ../2023/01/15/IMG_1234.jpg
+[==============================] 1247/1247 (100.0%) | Elapsed: 1m12s
+Sort complete! Processed 1,247 JSON files.
+```
+
+### Move Files (Default Behavior)
+
 ```bash
-./exifupdater --keep-files --keep-json --dest ~/organized-photos ~/google-takeout/Takeout/Google\ Photos/
+# Move files from source to organized destination
+./exifupdater -sort --dest ~/organized-photos ~/google-takeout
 ```
 
-## Resulting Directory Structure
+### Copy Files (Preserve Originals)
 
-After processing, your `~/organized-photos` directory will look like this:
-
-```
-organized-photos/
-├── ALL_PHOTOS/
-│   ├── 2023/
-│   │   ├── 01/
-│   │   │   └── 01/
-│   │   │       ├── IMG_1234.jpg
-│   │   │       └── VID_5678.mp4
-│   │   └── 02/
-│   │       └── 01/
-│   │           └── IMG_9876.jpg
-│   └── 2023/
-│       └── 03/
-│           └── 15/
-│               ├── IMG_4321.jpg
-│               └── IMG_8765.jpg
-├── Family Vacation 2023/
-│   ├── IMG_1234.jpg -> ../ALL_PHOTOS/2023/01/01/IMG_1234.jpg
-│   └── VID_5678.mp4 -> ../ALL_PHOTOS/2023/01/01/VID_5678.mp4
-└── Birthday Party/
-    └── IMG_9876.jpg -> ../ALL_PHOTOS/2023/02/01/IMG_9876.jpg
+```bash
+# Copy files instead of moving them
+./exifupdater -sort --keep-files --dest ~/organized-photos ~/google-takeout
 ```
 
-**Note:** Photos from the "Random Photos" folder won't have album symlinks because there was no `metadata.json` file with a title.
+### Resulting Directory Structure
 
-## Key Features Demonstrated
+After running sort mode, you'll get:
 
-1. **Analysis capability**: Scan mode helps you understand your collection before processing
-2. **Real-time progress tracking**: Progress bar with ETA shows scanning progress for large collections
-3. **Multi-worker performance**: Parallel processing speeds up scanning significantly
-4. **Date-based organization**: Files are organized by the date they were taken (from EXIF timestamp)
-5. **Album preservation**: Albums are recreated as directories with symbolic links
-6. **EXIF timestamp fixing**: All processed files get their EXIF timestamps updated
-7. **Smart duplicate handling**: Files with the same name at the destination are skipped, but album symlinks are still created
-8. **Safe preview**: Dry-run mode lets you see exactly what will happen
-9. **Flexible file handling**: Choose to move files (default) or copy them (--keep-files)
+```
+~/organized-photos/
+├── 2023/
+│   ├── 01/
+│   │   ├── 15/
+│   │   │   ├── IMG_1234.jpg
+│   │   │   └── IMG_1235.jpg
+│   │   └── 16/
+│   │       └── VID_5678.mp4
+│   └── 02/
+│       └── 10/
+│           └── IMG_9876.jpg
+├── 2024/
+│   └── 03/
+│       └── 22/
+│           └── IMG_0001.heic
+├── Family Vacation/           # Album from metadata.json
+│   ├── IMG_1234.jpg -> ../2023/01/15/IMG_1234.jpg
+│   ├── IMG_1235.jpg -> ../2023/01/15/IMG_1235.jpg
+│   └── VID_5678.mp4 -> ../2023/01/16/VID_5678.mp4
+└── Birthday Party 2023/       # Another album
+    └── IMG_9876.jpg -> ../2023/02/10/IMG_9876.jpg
+```
 
-## Tips
+### When to Use Sort Mode
 
-- **Start with `--scan`** to understand your collection and how many files need processing
-- **Watch the progress bar** during scanning to estimate completion time for large collections
-- **Always backup your original files first** (or use `--keep-files` to preserve originals)
-- **Use absolute paths** to avoid confusion
-- **Run dry-run first** to catch any issues
-- **Check available disk space** before processing large collections (especially with `--keep-files`)
-- **Review the logs** for any files that couldn't be processed
-- **Consider `--keep-files`** if you want to preserve the original Google Takeout structure
+- When you want to organize photos chronologically
+- To create album directories based on Google Photos albums
+- After updating EXIF timestamps (for best results)
 
-## Troubleshooting
+## Comprehensive Workflows
 
-If you see errors like:
-- `Image file 'filename.jpg' not found`: The JSON file exists but the corresponding image/video is missing
-- `File already exists at destination`: A file with the same name already exists in the organized structure, but album symlinks will still be created/verified
-- `Error creating symlink`: Your filesystem might not support symbolic links (rare on modern systems)
-- `Error copying file`: Insufficient disk space or permission issues when using `--keep-files`
-- `Scan shows 0% missing timestamps`: Your files already have proper EXIF data and may not need processing
+### Workflow 1: Complete Google Takeout Processing
 
-## Workflow Recommendations
+```bash
+# Step 1: Understand your data
+./exifupdater -scan ~/google-takeout
 
-### For Large Collections
-1. **Scan first**: `./exifupdater --scan ~/google-takeout` to understand scope
-2. **Dry run**: `./exifupdater --dry-run --dest ~/organized --keep-files ~/google-takeout`
-3. **Process**: `./exifupdater --dest ~/organized --keep-files ~/google-takeout`
+# Step 2: Fix missing timestamps (if scan showed issues)
+./exifupdater -update --dry-run ~/google-takeout  # Preview first
+./exifupdater -update --keep-json ~/google-takeout  # Keep JSON for reference
 
-### For Small Collections or Testing
-1. **Scan first**: `./exifupdater --scan ~/test-photos`
-2. **Dry run**: `./exifupdater --dry-run --dest ~/test-organized ~/test-photos`
-3. **Process**: `./exifupdater --dest ~/test-organized ~/test-photos`
+# Step 3: Organize into structured directories
+./exifupdater -sort --dry-run --dest ~/Photos ~/google-takeout  # Preview
+./exifupdater -sort --dest ~/Photos ~/google-takeout
+```
+
+### Workflow 2: Conservative Approach (Preserve Everything)
+
+```bash
+# Scan without making changes
+./exifupdater -scan ~/google-takeout
+
+# Update timestamps but keep JSON files
+./exifupdater -update --keep-json ~/google-takeout
+
+# Organize by copying (preserve original structure)
+./exifupdater -sort --keep-files --dest ~/Photos-Organized ~/google-takeout
+```
+
+### Workflow 3: Quick Organization (Skip Updates)
+
+If your photos already have good EXIF data:
+
+```bash
+# Quick scan to confirm
+./exifupdater -scan ~/google-takeout
+
+# Skip update mode and go straight to organization
+./exifupdater -sort --dest ~/Photos ~/google-takeout
+```
+
+## Common Scenarios
+
+### Large Collections (10,000+ photos)
+
+```bash
+# Use dry-run first to estimate time and space requirements
+./exifupdater -sort --dry-run --dest /Volumes/ExternalDrive/Photos ~/google-takeout
+
+# Monitor progress with the built-in progress bars
+./exifupdater -sort --dest /Volumes/ExternalDrive/Photos ~/google-takeout
+```
+
+### Multiple Takeout Archives
+
+```bash
+# Process each archive separately
+./exifupdater -update ~/takeout-2023
+./exifupdater -update ~/takeout-2024
+
+# Then organize all into one destination
+./exifupdater -sort --dest ~/All-Photos ~/takeout-2023
+./exifupdater -sort --dest ~/All-Photos ~/takeout-2024
+```
+
+### Network Storage
+
+```bash
+# Copy mode recommended for network storage
+./exifupdater -sort --keep-files --dest /mnt/nas/Photos ~/google-takeout
+```
+
+## Tips and Best Practices
+
+### Before You Start
+
+1. **Always use dry-run first**: `--dry-run` shows exactly what will happen
+2. **Check available disk space**: Sort mode with `--keep-files` doubles storage requirements
+3. **Backup important data**: Though the tool is safe, backups are always wise
+
+### During Processing
+
+1. **Monitor progress bars**: Built-in ETA helps plan your time
+2. **Check logs**: Any errors or warnings are displayed in real-time
+3. **Don't interrupt**: Let each mode complete fully for best results
+
+### After Processing
+
+1. **Verify results**: Quick spot-check of organized directories
+2. **Clean up**: Remove original takeout files if you used move operations
+3. **Test album links**: Verify symbolic links work on your system
+
+### Performance Tips
+
+- **SSD storage**: Significantly faster than traditional hard drives
+- **Local processing**: Network storage can slow operations considerably
+- **Sufficient RAM**: Tool is memory-efficient but benefits from adequate RAM
+
+## Troubleshooting Examples
+
+### Problem: "No JSON files found"
+
+```bash
+# Check your directory structure
+ls -la ~/google-takeout/
+# Should show directories like "Google Photos", "Takeout", etc.
+
+# Look for actual JSON files
+find ~/google-takeout -name "*.json" | head -10
+```
+
+### Problem: "exiftool command not found"
+
+```bash
+# Install exiftool (macOS with Homebrew)
+brew install exiftool
+
+# Install exiftool (Ubuntu/Debian)
+sudo apt-get install exiftool
+
+# Verify installation
+which exiftool
+```
+
+### Problem: Symlinks not working
+
+```bash
+# Check if your filesystem supports symlinks
+ln -s /tmp/test /tmp/testlink
+ls -la /tmp/testlink
+
+# Some Windows filesystems and cloud storage don't support symlinks
+# Use --keep-files to copy instead
+```
+
+### Problem: Running out of space
+
+```bash
+# Check space requirements first
+du -sh ~/google-takeout  # Source size
+df -h ~/destination      # Available space
+
+# Use copy mode only if you have 2x the space
+./exifupdater -sort --keep-files --dest ~/Photos ~/google-takeout
+```
+
+## Advanced Usage
+
+### Custom Destination Structure
+
+The tool creates `YYYY/MM/DD` structure, but you can process multiple times:
+
+```bash
+# Organize by year first
+./exifupdater -sort --dest ~/Photos-by-Year ~/google-takeout
+
+# Then manually reorganize subsets as needed
+```
+
+### Selective Processing
+
+```bash
+# Process only a subset of your takeout
+./exifupdater -scan ~/google-takeout/Google\ Photos/Photos\ from\ 2023
+
+# Update just that subset
+./exifupdater -update ~/google-takeout/Google\ Photos/Photos\ from\ 2023
+```
+
+### Integration with Other Tools
+
+```bash
+# After organizing, generate thumbnails
+find ~/organized-photos -name "*.jpg" -exec convert {} -resize 200x200 {}_thumb.jpg \;
+
+# Create a photo index
+find ~/organized-photos -name "*.jpg" > photo-inventory.txt
+```

@@ -1,34 +1,32 @@
-# EXIF Timestamp Updater
+# EXIF Updater
 
-This tool fixes missing EXIF timestamps from photos and videos exported from Google Photos via Takeout, and organizes them into a structured directory layout with album support.
+A multi-mode photo organization tool for processing Google Photos Takeout data. This tool provides three distinct modes to scan, update, and organize your photo collection with proper EXIF timestamps and structured directories.
 
 ## Features
 
-- Processes multiple image files in parallel using worker goroutines
-- Organizes photos into date-based directory structure
-- Creates album directories with symbolic links based on metadata
-- Handles various filename variations and edge cases
-- Supports different image formats through exiftool
-- Can optionally keep or delete JSON files after processing
-- Can copy files instead of moving them (preserving originals)
-- Dry-run mode to preview changes without making modifications
-- Scan mode to analyze files for missing EXIF timestamp data (multi-worker with progress bar and ETA)
-- Efficiently processes large numbers of files
+- **Three distinct modes**: scan, update, and sort for modular workflow
+- **Scan Mode**: Analyze photos to report missing EXIF timestamp data
+- **Update Mode**: Fix missing EXIF timestamps using Google Takeout JSON metadata
+- **Sort Mode**: Organize photos into date-based directories with album symlinks
+- **Parallel Processing**: Multi-worker architecture for efficient batch operations
+- **Progress Tracking**: Real-time progress bars with ETA calculations
+- **Dry-run Support**: Preview all operations before making changes
+- **Flexible Options**: Keep originals, preserve JSON files, and more
 
 ## Prerequisites
 
 - Go 1.16 or later
-- [exiftool](https://github.com/exiftool/exiftool) (must be installed and available in system PATH)
-
-## Run Remotely
-
-You can build and run this tool directly off this repository with:
-
-```
-go run github.com/bryanbrunetti/exifupdater@latest
-```
+- [exiftool](https://github.com/exiftool/exiftool) (required for scan and update modes)
 
 ## Installation
+
+### Run Directly from Repository
+
+```bash
+go run github.com/bryanbrunetti/exifupdater@latest -scan ~/google-takeout
+```
+
+### Build Locally
 
 1. Clone this repository:
    ```bash
@@ -43,225 +41,247 @@ go run github.com/bryanbrunetti/exifupdater@latest
 
 ## Usage
 
-```
-Usage: exifupdater [options] <source_directory>
-  source_directory  The root directory to scan for JSON files
+### Command Structure
 
-Options:
-  -dest string
-        Destination directory for organized photos (required)
-  -dry-run
-        Show what would be done without making any changes
-  -keep-files
-        Copy files instead of moving them (preserves originals)
-  -keep-json
-        Keep JSON files after processing (don't delete them)
-  -scan
-        Scan files to report how many are missing EXIF timestamp data
-
-The destination directory will be organized as:
-  <dest>/ALL_PHOTOS/<year>/<month>/<day>/<filename>
-  <dest>/<album_name>/<filename> (symlinks to ALL_PHOTOS)
-
-Scan mode analyzes files for missing EXIF timestamp data:
-  DateTimeOriginal, MediaCreateDate, CreationDate, TrackCreateDate,
-  CreateDate, DateTimeDigitized, GPSDateStamp, DateTime
-```
-
-### Examples
-
-**Scan files to see how many need EXIF timestamp updates:**
 ```bash
-./exifupdater --scan ~/google-takeout
+exifupdater [mode] [options] <source_directory>
 ```
 
-**Example scan output with progress bar:**
-```
-Starting EXIF timestamp updater...
-Scanning directory: /Users/you/google-takeout
-Found 1247 media files to check
-Using 10 workers for scanning...
+### Modes (choose exactly one)
 
-[===================>          ] 892/1247 (71.5%) | Elapsed: 1m23s | ETA: 42s
+- `-scan`: Scan files and report how many are missing EXIF timestamp data
+- `-update`: Update EXIF timestamps from JSON metadata files  
+- `-sort`: Sort files into `<year>/<month>/<day>` structure with album symlinks
 
-=== SCAN RESULTS ===
-Total media files scanned: 1247
-Files missing ALL timestamp data: 892
-Files with some timestamp data: 355
-Percentage missing timestamps: 71.5%
-```
+### Options
 
-**Process files and organize them (dry-run first to preview):**
+- `-dest string`: Destination directory (required for sort mode)
+- `-dry-run`: Show what would be done without making any changes
+- `-keep-files`: Copy files instead of moving them (preserves originals)
+- `-keep-json`: Keep JSON files after processing (don't delete them)
+
+## Examples
+
+### 1. Scan Mode - Analyze Your Collection
+
+Check how many photos are missing EXIF timestamp data:
+
 ```bash
-# Preview changes without making modifications
-./exifupdater --dry-run --dest ~/organized-photos ~/google-takeout
+# Basic scan
+./exifupdater -scan ~/google-takeout
 
-# Actually process and organize the files
-./exifupdater --dest ~/organized-photos ~/google-takeout
+# Example output:
+# EXIF Updater - Multi-mode photo organization tool
+# 
+# Scanning directory: /Users/you/google-takeout
+# Found 1247 media files to check
+# Using 10 workers for scanning...
+# 
+# [===================>          ] 1247/1247 (100.0%) | Elapsed: 1m23s
+# 
+# === SCAN RESULTS ===
+# Total media files scanned: 1247
+# Files missing ALL timestamp data: 892
+# Files with some timestamp data: 355
+# Percentage missing timestamps: 71.5%
 ```
 
-**Process files and keep JSON metadata:**
+### 2. Update Mode - Fix EXIF Timestamps
+
+Update EXIF timestamps from Google Takeout JSON metadata:
+
 ```bash
-./exifupdater --keep-json --dest ~/organized-photos ~/google-takeout
+# Preview changes first
+./exifupdater -update --dry-run ~/google-takeout
+
+# Actually update the files
+./exifupdater -update ~/google-takeout
+
+# Keep JSON files after updating
+./exifupdater -update --keep-json ~/google-takeout
 ```
 
-**Process files by copying instead of moving (preserves originals):**
+### 3. Sort Mode - Organize Your Photos
+
+Sort photos into a structured directory layout:
+
 ```bash
-./exifupdater --keep-files --dest ~/organized-photos ~/google-takeout
+# Preview the organization
+./exifupdater -sort --dry-run --dest ~/organized-photos ~/google-takeout
+
+# Organize photos (moves files)
+./exifupdater -sort --dest ~/organized-photos ~/google-takeout
+
+# Copy files instead of moving (preserves originals)
+./exifupdater -sort --keep-files --dest ~/organized-photos ~/google-takeout
 ```
 
-**Combine options (copy files and keep JSON):**
+## Typical Workflow
+
+For processing Google Takeout data, use this recommended workflow:
+
 ```bash
-./exifupdater --keep-files --keep-json --dest ~/organized-photos ~/google-takeout
+# 1. First, scan to understand your collection
+./exifupdater -scan ~/google-takeout
+
+# 2. Update EXIF timestamps (if needed based on scan results)
+./exifupdater -update --keep-json ~/google-takeout
+
+# 3. Organize into structured directories
+./exifupdater -sort --dest ~/organized-photos ~/google-takeout
 ```
 
 ## Directory Structure
 
-The tool creates an organized directory structure in the destination folder:
+The sort mode creates this organized structure:
 
 ```
-/organized/photos/
-├── ALL_PHOTOS/
-│   └── 2023/
-│       └── 01/
-│           └── 15/
-│               ├── IMG_1234.jpg
-│               └── VID_5678.mp4
-├── Family Vacation/
-│   ├── IMG_1234.jpg -> ../ALL_PHOTOS/2023/01/15/IMG_1234.jpg
-│   └── VID_5678.mp4 -> ../ALL_PHOTOS/2023/01/15/VID_5678.mp4
-└── Birthday Party/
-    └── IMG_9876.jpg -> ../ALL_PHOTOS/2023/02/10/IMG_9876.jpg
+/organized-photos/
+├── 2023/
+│   ├── 01/
+│   │   └── 15/
+│   │       ├── IMG_1234.jpg
+│   │       └── VID_5678.mp4
+│   └── 02/
+│       └── 10/
+│           └── IMG_9876.jpg
+├── Family Vacation/              # Album from metadata.json
+│   ├── IMG_1234.jpg -> ../2023/01/15/IMG_1234.jpg
+│   └── VID_5678.mp4 -> ../2023/01/15/VID_5678.mp4
+└── Birthday Party/               # Another album
+    └── IMG_9876.jpg -> ../2023/02/10/IMG_9876.jpg
 ```
 
 ### Key Features:
 
-- **ALL_PHOTOS**: Main storage organized by date (YYYY/MM/DD)
-- **Album directories**: Named after the "title" field in `metadata.json` files
-- **Symbolic links**: Files in album directories link to the main storage location
-- **Smart duplicate handling**: Files with the same name at the destination are skipped, but album symlinks are still created
+- **Date-based Structure**: Main storage organized by `YYYY/MM/DD`
+- **Album Directories**: Named after the "title" field in `metadata.json` files
+- **Symbolic Links**: Album files link back to the date-based structure
+- **No Duplicates**: Files with identical content are automatically handled
 
-## How It Works
+## How Each Mode Works
 
-### Normal Processing Mode
+### Scan Mode
 
-1. The tool scans the specified source directory for `.json` files containing metadata from Google Takeout
-2. For each JSON file found, it looks for the corresponding image/video file
-3. It reads the timestamp from the JSON file and updates the EXIF data using exiftool
-4. The file is moved (or copied with `--keep-files`) to the organized structure: `<dest>/ALL_PHOTOS/<year>/<month>/<day>/<filename>`
-5. If a `metadata.json` file exists in the same directory with a "title" field:
-   - Creates an album directory named after the title
-   - Creates a symbolic link from the album to the organized file location
-6. Optionally deletes the JSON file after successful processing
+1. Recursively finds all media files in the source directory
+2. Uses multiple workers to check each file's EXIF timestamp fields
+3. Analyzes: DateTimeOriginal, MediaCreateDate, CreationDate, TrackCreateDate, CreateDate, DateTimeDigitized, GPSDateStamp, DateTime
+4. Reports statistics and creates a log file of problematic files
+5. Shows real-time progress with ETA calculations
 
-### Scan Mode (`--scan`)
+### Update Mode
 
-1. The tool scans the specified directory for all media files (photos and videos)
-2. Uses multiple worker processes (based on CPU cores) to analyze files in parallel for better performance
-3. Displays a real-time progress bar with elapsed time and estimated time to completion (ETA)
-4. For each media file, it checks for the presence of EXIF timestamp fields:
-   - DateTimeOriginal, MediaCreateDate, CreationDate, TrackCreateDate
-   - CreateDate, DateTimeDigitized, GPSDateStamp, DateTime
-5. Files missing ALL of these timestamp fields are counted as needing updates
-6. Provides a summary report showing total files vs files needing timestamp updates
+1. Finds all JSON metadata files from Google Takeout
+2. Reads timestamp information from each JSON file
+3. Locates corresponding image/video files using smart fallback logic
+4. Updates EXIF timestamps using exiftool
+5. Optionally removes JSON files after successful processing
 
-The tool handles various filename variations including:
-- Truncated filenames (48, 47, 46 character limits)
-- Numbered suffixes (e.g., `_1.jpg` → `(1).jpg`)
-- Different quote styles and characters
-- Different extension cases
+### Sort Mode
+
+1. Processes JSON metadata to extract timestamps and filenames
+2. Creates date-based directory structure (`YYYY/MM/DD`)
+3. Moves or copies media files to organized locations
+4. Reads `metadata.json` files to identify album names
+5. Creates album directories with symbolic links back to date structure
 
 ## Metadata Structure
 
-The tool expects JSON files with this structure:
+The tool expects Google Takeout JSON files with this structure:
+
 ```json
 {
-  "title": "filename.jpg",
+  "title": "IMG_1234.jpg",
   "photoTakenTime": {
     "timestamp": "1640995200"
   }
 }
 ```
 
-And optional `metadata.json` files in the same directory:
+Optional `metadata.json` files for albums:
+
 ```json
 {
-  "title": "Album Name"
+  "title": "Family Vacation 2023"
 }
 ```
 
-## Error Handling
+## Advanced Features
 
-- Files that can't be processed are logged with appropriate error messages
-- **Files already existing at the destination are skipped, but album symlinks are still created**
-- The tool continues processing other files if an error occurs
-- Detailed logs are printed to help diagnose any issues
-- Dry-run mode allows you to preview all operations before execution
+### Smart File Matching
+
+The tool handles various filename edge cases:
+- Truncated filenames (48, 47, 46 character limits)
+- Different extension cases (.jpg vs .JPG)
+- Various media formats (photos and videos)
+
+### Duplicate Handling
+
+- Files already at destination are skipped
+- Album symlinks are still created for existing files
+- Identical files are detected and handled appropriately
+
+### Error Handling
+
+- Detailed logging for troubleshooting
+- Graceful handling of missing files or corrupted metadata
+- Continue processing even if individual files fail
 
 ## Testing
 
-The project includes a comprehensive test suite to ensure reliability. To run the tests:
+Run the test suite:
 
 ```bash
 # Run all tests
-make test
-# or
 go test -v
 
-# Run a specific test
-make test TEST=TestNewExifTool
-# or
-go test -v -run TestNewExifTool
-```
+# Run specific test
+go test -v -run TestGetDateFromTimestamp
 
-### Test Coverage
-
-To generate a coverage report:
-
-```bash
-make cover
-# or
+# Generate coverage report
 go test -coverprofile=coverage.out && go tool cover -html=coverage.out
 ```
-
-### Test Structure
-
-- `TestNewExifTool`: Verifies the ExifTool instance is created with the correct arguments
-- `TestExifTool_Execute`: Tests command execution against exiftool
-- `TestPhotoMetadata_Unmarshal`: Tests JSON parsing of photo metadata
-- `TestFindFileWithFallbacks`: Tests the file finding logic with various edge cases
-- `TestCheckTruncatedName`: Tests the filename truncation logic
-
-### Test Dependencies
-
-- Tests require `exiftool` to be installed and available in the system PATH
-- The test suite will be skipped if exiftool is not found
-
-## Best Practices
-
-1. **Start with --scan** to understand how many files need timestamp updates
-2. **Always run with --dry-run first** to preview what will happen
-3. **Make backups** of your original Google Takeout files before processing (or use `--keep-files`)
-4. **Use absolute paths** for source and destination directories
-5. **Check disk space** before processing large collections (especially when using `--keep-files`)
-6. **Review the logs** for any files that couldn't be processed
 
 ## Troubleshooting
 
 ### Common Issues
 
 1. **"exiftool command not found"**: Install exiftool and ensure it's in your PATH
-2. **Permission denied**: Ensure you have write permissions to the destination directory
-3. **Files not found**: Check the filename variations - the tool handles many cases but some edge cases might exist
-4. **Symlink creation fails**: Ensure the filesystem supports symbolic links
-5. **"File already exists at destination"**: The file is already organized, but album symlinks will still be created/verified
-6. **Scan shows 0% missing timestamps**: Your files may already have proper EXIF data and don't need processing
+2. **"You must specify exactly one mode"**: Use only one of `-scan`, `-update`, or `-sort`
+3. **Permission denied**: Ensure write permissions to destination directory
+4. **No JSON files found**: Verify you're pointing to the correct Google Takeout directory
 
 ### Getting Help
 
-If you encounter issues:
-1. Start with `--scan` to understand your file collection
-2. Run with `--dry-run` to see what the tool would do
-3. Check the detailed log output for specific error messages
-4. Verify your source directory structure matches Google Takeout format
-5. Ensure sufficient disk space and permissions
+1. Start with `-scan` to understand your collection
+2. Always use `--dry-run` first to preview operations
+3. Check the detailed log output for specific issues
+4. Ensure your source directory structure matches Google Takeout format
+
+### Mode-Specific Tips
+
+**Scan Mode:**
+- No destination directory needed
+- Creates a timestamped log file of problematic files
+- Safe to run multiple times
+
+**Update Mode:**  
+- Works in-place on your files
+- Use `--keep-json` to preserve metadata files
+- Use `--dry-run` to verify operations first
+
+**Sort Mode:**
+- Requires `-dest` destination directory
+- Use `--keep-files` to copy instead of move
+- Creates comprehensive directory structure with albums
+
+## Performance
+
+- **Multi-threaded**: Uses all available CPU cores by default
+- **Memory efficient**: Processes files in batches
+- **Progress tracking**: Real-time updates with ETA calculations
+- **Optimized I/O**: Minimal file system operations per file
+
+## License
+
+This project is open source. See the repository for license details.
