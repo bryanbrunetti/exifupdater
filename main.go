@@ -338,7 +338,7 @@ func (pb *progressBar) update() {
 	atomic.AddInt64(&pb.current, 1)
 	current := atomic.LoadInt64(&pb.current)
 
-	if current%5 == 0 || current == pb.total {
+	if current == pb.total {
 		pb.display(current)
 	}
 }
@@ -407,6 +407,23 @@ func formatDuration(d time.Duration) string {
 
 // performScan scans all non-JSON files and reports how many are missing EXIF timestamp data
 func performScan(sourceDir string) {
+	// Create timestamped log file for missing timestamp files
+	timestamp := time.Now().Format("20060102_150405")
+	logFileName := fmt.Sprintf("missing_timestamps_%s.log", timestamp)
+	logFile, err := os.Create(logFileName)
+	if err != nil {
+		log.Fatalf("Error creating log file: %v", err)
+	}
+	defer logFile.Close()
+
+	// Write header to log file
+	fmt.Fprintf(logFile, "# Files Missing ALL Timestamp Data\n")
+	fmt.Fprintf(logFile, "# Scan Date: %s\n", time.Now().Format("2006-01-02 15:04:05"))
+	fmt.Fprintf(logFile, "# Source Directory: %s\n", sourceDir)
+	fmt.Fprintf(logFile, "# Checked Fields: DateTimeOriginal, MediaCreateDate, CreationDate, TrackCreateDate, CreateDate, DateTimeDigitized, GPSDateStamp, DateTime\n")
+	fmt.Fprintf(logFile, "#\n")
+
+	fmt.Printf("Created log file: %s\n", logFileName)
 	fmt.Printf("Scanning directory: %s\n", sourceDir)
 	fmt.Println("Checking for missing EXIF timestamp data...")
 	fmt.Println("Looking for: DateTimeOriginal, MediaCreateDate, CreationDate, TrackCreateDate, CreateDate, DateTimeDigitized, GPSDateStamp, DateTime")
@@ -415,7 +432,7 @@ func performScan(sourceDir string) {
 	var filesToCheck []string
 
 	// Collect all non-JSON files
-	err := filepath.Walk(sourceDir, func(path string, info os.FileInfo, err error) error {
+	err = filepath.Walk(sourceDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			log.Printf("Warning: Skipping path due to error: %s: %v", path, err)
 			return nil
@@ -477,12 +494,28 @@ func performScan(sourceDir string) {
 		close(results)
 	}()
 
-	// Collect results
+	// Collect results and log missing files
 	var missingFiles int
+	var missingFilePaths []string
 	for result := range results {
 		if result.missing {
 			missingFiles++
+			missingFilePaths = append(missingFilePaths, result.filePath)
 		}
+	}
+
+	// Write missing files to log
+	if len(missingFilePaths) > 0 {
+		fmt.Printf("Writing %d files with missing timestamps to log file...\n", len(missingFilePaths))
+		for _, filePath := range missingFilePaths {
+			_, err := fmt.Fprintf(logFile, "%s\n", filePath)
+			if err != nil {
+				log.Printf("Warning: Could not write to log file: %v", err)
+			}
+		}
+		fmt.Printf("Log file written: %s\n", logFileName)
+	} else {
+		fmt.Printf("No files missing timestamps - log file is empty.\n")
 	}
 
 	// Report results
@@ -569,9 +602,18 @@ func isMissingTimestamps(et *ExifTool, filePath string) bool {
 			continue
 		}
 
-		// Look for lines with timestamp data (not just field names)
+		// With -s -S flags, exiftool returns only values, not field names
+		// Any non-empty line represents a valid timestamp value
+		// Check if the line looks like a timestamp (contains colons and has reasonable length)
+		if strings.Contains(line, ":") && len(line) >= 10 {
+			// Additional validation: check if it's not an error message or placeholder
+			if line != "-" && !strings.Contains(strings.ToLower(line), "error") {
+				return false // Found valid timestamp data
+			}
+		}
+
+		// Also handle full format output (field: value) in case flags change
 		if strings.Contains(line, ":") && len(line) > 20 {
-			// If we find any timestamp data, file is not missing all timestamps
 			parts := strings.SplitN(line, ":", 2)
 			if len(parts) == 2 && strings.TrimSpace(parts[1]) != "" && strings.TrimSpace(parts[1]) != "-" {
 				return false
@@ -649,43 +691,123 @@ func main() {
 		log.Printf("DRY RUN MODE: No files will be modified")
 	}
 
-	// --- 2. Worker Pool Initialization ---
+	// --- 2. Count JSON files for progress tracking ---
+	fmt.Println("Counting JSON files...")
+	var jsonFiles []string
+	err = filepath.Walk(sourceDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			log.Printf("Warning: Skipping path due to error: %s: %v", path, err)
+			return nil
+		}
+		if !info.IsDir() && filepath.Ext(path) == ".json" {
+			jsonFiles = append(jsonFiles, path)
+		}
+		return nil
+	})
+	if err != nil {
+		log.Fatalf("Error counting JSON files: %v", err)
+	}
+
+	totalFiles := len(jsonFiles)
+	fmt.Printf("Found %d JSON files to process\n", totalFiles)
+
+	if totalFiles == 0 {
+		fmt.Println("No JSON files found to process.")
+		return
+	}
+
+	// Initialize progress bar
+	pb := newProgressBar(totalFiles)
+	fmt.Println("Processing files...")
+	pb.display(0)
+
+	// --- 3. Worker Pool Initialization ---
 	numWorkers := runtime.NumCPU()
-	log.Printf("Initializing worker pool with %d workers.", numWorkers)
 
 	jobs := make(chan string, numWorkers)
 	var wg sync.WaitGroup
 
 	for i := 1; i <= numWorkers; i++ {
 		wg.Add(1)
-		go worker(i, &wg, jobs, keepJSON, keepFiles, destDir, dryRun)
+		go worker(i, &wg, jobs, keepJSON, keepFiles, destDir, dryRun, pb)
 	}
 
-	// --- 3. Directory Traversal ---
+	// --- 4. Send jobs ---
 	go func() {
 		defer close(jobs)
-		err := filepath.Walk(sourceDir, func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				log.Printf("Warning: Skipping path due to error: %s: %v", path, err)
-				return nil
-			}
-			if !info.IsDir() && filepath.Ext(path) == ".json" {
-				jobs <- path
-			}
-			return nil
-		})
-		if err != nil {
-			log.Printf("Error walking the path %s: %v\n", sourceDir, err)
+		for _, jsonPath := range jsonFiles {
+			jobs <- jsonPath
 		}
 	}()
 
-	// --- 4. Wait for Completion ---
+	// --- 5. Wait for Completion ---
 	wg.Wait()
-	fmt.Println("Processing complete.")
+
+	// Ensure final progress display
+	pb.display(pb.total)
+	fmt.Println()
+	fmt.Printf("Processing complete! Processed %d JSON files.\n", totalFiles)
+}
+
+// handleDuplicateFile handles files that already exist at destination
+// Returns true if processing should be skipped (file was deleted from source)
+func handleDuplicateFile(sourcePath, destPath, albumName, destDir, year, month, day, filename string, dryRun, keepFiles bool) bool {
+	// Compare files using diff
+	cmd := exec.Command("diff", sourcePath, destPath)
+	err := cmd.Run()
+
+	if err != nil {
+		// Files are different or diff command failed
+		if exitError, ok := err.(*exec.ExitError); ok && exitError.ExitCode() == 1 {
+			// diff returned 1 means files are different - skip processing
+			return false
+		} else {
+			// diff command failed for other reasons - skip processing to be safe
+			log.Printf("Warning: diff command failed for %s vs %s: %v", sourcePath, destPath, err)
+			return false
+		}
+	}
+
+	// Files are identical (diff returned 0)
+	if dryRun {
+		log.Printf("[DRY RUN] Files are identical, would delete source file: %s", sourcePath)
+		log.Printf("[DRY RUN] Would ensure album symlink exists")
+		return true
+	}
+
+	if keepFiles {
+		// In keep-files mode, don't delete anything
+		return false
+	}
+
+	// Files are identical - ensure album symlink exists, then delete source
+	if albumName != "" {
+		albumDir := filepath.Join(destDir, albumName)
+		if err := ensureDirectory(albumDir, false); err != nil {
+			log.Printf("Warning: Could not create album directory %s: %v", albumDir, err)
+		} else {
+			// Create relative path for symlink
+			relativePath := filepath.Join("..", "ALL_PHOTOS", year, month, day, filename)
+			symlinkPath := filepath.Join(albumDir, filename)
+
+			if err := createSymlink(relativePath, symlinkPath, false); err != nil {
+				log.Printf("Warning: Could not create/verify symlink %s -> %s: %v", symlinkPath, relativePath, err)
+			}
+		}
+	}
+
+	// Delete the source file since it's identical to destination
+	if err := os.Remove(sourcePath); err != nil {
+		log.Printf("Warning: Could not delete duplicate source file %s: %v", sourcePath, err)
+		return false
+	}
+
+	log.Printf("Deleted identical duplicate source file: %s", sourcePath)
+	return true
 }
 
 // worker defines the work each goroutine will perform.
-func worker(id int, wg *sync.WaitGroup, jobs <-chan string, keepJSON, keepFiles *bool, destDir string, dryRun *bool) {
+func worker(id int, wg *sync.WaitGroup, jobs <-chan string, keepJSON, keepFiles *bool, destDir string, dryRun *bool, pb *progressBar) {
 	defer wg.Done()
 
 	var et *ExifTool
@@ -699,7 +821,6 @@ func worker(id int, wg *sync.WaitGroup, jobs <-chan string, keepJSON, keepFiles 
 			return
 		}
 		defer et.Close()
-		log.Printf("Worker %d: Exiftool process started.", id)
 	}
 
 	for jsonPath := range jobs {
@@ -724,21 +845,21 @@ func worker(id int, wg *sync.WaitGroup, jobs <-chan string, keepJSON, keepFiles 
 		}
 
 		if meta.Title == "" || meta.PhotoTakenTime.Timestamp == "" {
-			log.Printf("Worker %d: Skipping %s, missing title or timestamp.", id, jsonPath)
+			// Skipping file with missing title or timestamp (reduce log verbosity)
 			continue
 		}
 
 		// --- 2. Find the target file using fallback logic ---
 		imagePath := findFileWithFallbacks(filepath.Dir(jsonPath), meta.Title)
 		if imagePath == "" {
-			log.Printf("Worker %d: Image file '%s' not found for json '%s' after all checks. Skipping.", id, meta.Title, jsonPath)
+			// Image file not found (reduce log verbosity)
 			continue
 		}
 
 		// --- 3. Convert Timestamp and determine date structure ---
 		timestamp, err := strconv.ParseInt(meta.PhotoTakenTime.Timestamp, 10, 64)
 		if err != nil {
-			log.Printf("Worker %d: Could not parse timestamp in %s: %v", id, jsonPath, err)
+			// Could not parse timestamp (reduce log verbosity)
 			continue
 		}
 
@@ -749,46 +870,7 @@ func worker(id int, wg *sync.WaitGroup, jobs <-chan string, keepJSON, keepFiles 
 		allPhotosPath := filepath.Join(destDir, "ALL_PHOTOS", year, month, day)
 		destPath := filepath.Join(allPhotosPath, filename)
 
-		// Check if file already exists at destination
-		fileAlreadyExists := false
-		if _, err := os.Stat(destPath); err == nil {
-			fileAlreadyExists = true
-			if *dryRun {
-				log.Printf("Worker %d: [DRY RUN] File already exists at destination %s, skipping file operations but checking album symlinks", id, destPath)
-			} else {
-				log.Printf("Worker %d: File already exists at destination %s, skipping file operations but checking album symlinks", id, destPath)
-			}
-		}
-
-		// --- 4. Update EXIF data and move/copy file (only if file doesn't already exist) ---
-		if !fileAlreadyExists {
-			if !*dryRun {
-				t := time.Unix(timestamp, 0)
-				formattedTime := t.Format("2006:01:02 15:04:05")
-				dateTimeArg := fmt.Sprintf("-CreateDate=%s -DateTimeOriginal=%s", formattedTime, formattedTime)
-
-				log.Printf("Worker %d: Updating EXIF for %s", id, imagePath)
-				output, err := et.Execute("-overwrite_original", dateTimeArg, imagePath)
-				if err != nil {
-					log.Printf("Worker %d: Exiftool command failed for '%s': %v\nOutput: %s", id, imagePath, err, output)
-					continue
-				}
-			} else {
-				log.Printf("Worker %d: [DRY RUN] Would update EXIF for %s", id, imagePath)
-			}
-
-			// --- 5. Move or copy file to organized structure ---
-			if err := moveOrCopyFile(imagePath, destPath, *dryRun, *keepFiles); err != nil {
-				if *keepFiles {
-					log.Printf("Worker %d: Error copying file %s to %s: %v", id, imagePath, destPath, err)
-				} else {
-					log.Printf("Worker %d: Error moving file %s to %s: %v", id, imagePath, destPath, err)
-				}
-				continue
-			}
-		}
-
-		// --- 6. Read metadata.json from the same directory for album info ---
+		// --- 4. Read metadata.json from the same directory for album info ---
 		metadataJsonPath := filepath.Join(filepath.Dir(jsonPath), "metadata.json")
 		albumName := ""
 
@@ -803,8 +885,39 @@ func worker(id int, wg *sync.WaitGroup, jobs <-chan string, keepJSON, keepFiles 
 			metadataFile.Close()
 		}
 
+		// Check if file already exists at destination
+		fileAlreadyExists := false
+		shouldSkipProcessing := false
+		if _, err := os.Stat(destPath); err == nil {
+			fileAlreadyExists = true
+			// File already exists at destination - check if files are identical
+			shouldSkipProcessing = handleDuplicateFile(imagePath, destPath, albumName, destDir, year, month, day, filename, *dryRun, *keepFiles)
+		}
+
+		// --- 5. Update EXIF data and move/copy file (only if file doesn't already exist) ---
+		if !fileAlreadyExists && !shouldSkipProcessing {
+			if !*dryRun {
+				t := time.Unix(timestamp, 0)
+				formattedTime := t.Format("2006:01:02 15:04:05")
+				dateTimeArg := fmt.Sprintf("-CreateDate=%s -DateTimeOriginal=%s", formattedTime, formattedTime)
+
+				// Updating EXIF data (reduce log verbosity)
+				output, err := et.Execute("-overwrite_original", dateTimeArg, imagePath)
+				if err != nil {
+					log.Printf("Worker %d: Exiftool command failed for '%s': %v\nOutput: %s", id, imagePath, err, output)
+					continue
+				}
+			}
+
+			// --- 6. Move or copy file to organized structure ---
+			if err := moveOrCopyFile(imagePath, destPath, *dryRun, *keepFiles); err != nil {
+				log.Printf("Worker %d: Error moving/copying file %s to %s: %v", id, imagePath, destPath, err)
+				continue
+			}
+		}
+
 		// --- 7. Create album directory and symlink ---
-		if albumName != "" {
+		if albumName != "" && !shouldSkipProcessing {
 			albumDir := filepath.Join(destDir, albumName)
 			if err := ensureDirectory(albumDir, *dryRun); err != nil {
 				log.Printf("Worker %d: Error creating album directory %s: %v", id, albumDir, err)
@@ -815,39 +928,20 @@ func worker(id int, wg *sync.WaitGroup, jobs <-chan string, keepJSON, keepFiles 
 
 				if err := createSymlink(relativePath, symlinkPath, *dryRun); err != nil {
 					log.Printf("Worker %d: Error creating symlink %s -> %s: %v", id, symlinkPath, relativePath, err)
-				} else if !*dryRun {
-					log.Printf("Worker %d: Created/verified symlink in album '%s': %s", id, albumName, filename)
 				}
 			}
 		}
 
 		// --- 8. Handle JSON file (only if file operations were performed) ---
-		if !fileAlreadyExists && !*keepJSON {
-			if *dryRun {
-				log.Printf("Worker %d: [DRY RUN] Would delete JSON file %s", id, jsonPath)
-			} else {
+		if (!fileAlreadyExists || shouldSkipProcessing) && !*keepJSON {
+			if !*dryRun {
 				if err := os.Remove(jsonPath); err != nil {
 					log.Printf("Worker %d: Warning: Could not delete JSON file %s: %v", id, jsonPath, err)
 				}
 			}
 		}
 
-		if *dryRun {
-			log.Printf("Worker %d: [DRY RUN] Successfully processed %s", id, jsonPath)
-		} else {
-			if fileAlreadyExists {
-				log.Printf("Worker %d: Successfully processed %s (file already existed, checked album symlinks)", id, jsonPath)
-			} else if *keepFiles {
-				log.Printf("Worker %d: Successfully processed %s -> %s (copied)", id, jsonPath, destPath)
-			} else {
-				log.Printf("Worker %d: Successfully processed %s -> %s (moved)", id, jsonPath, destPath)
-			}
-		}
-	}
-
-	if !*dryRun {
-		log.Printf("Worker %d: Shutting down.", id)
-	} else {
-		log.Printf("Worker %d: [DRY RUN] Shutting down.", id)
+		// Update progress bar
+		pb.update()
 	}
 }

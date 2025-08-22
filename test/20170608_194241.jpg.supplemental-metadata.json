@@ -1,0 +1,36 @@
+{
+  "title": "20170608_194241.jpg",
+  "description": "",
+  "imageViews": "156",
+  "creationTime": {
+    "timestamp": "1497037071",
+    "formatted": "Jun 9, 2017, 7:37:51 PM UTC"
+  },
+  "photoTakenTime": {
+    "timestamp": "1496965361",
+    "formatted": "Jun 8, 2017, 11:42:41 PM UTC"
+  },
+  "geoData": {
+    "latitude": 40.7334367,
+    "longitude": -73.5823593,
+    "altitude": -11.199,
+    "latitudeSpan": 0.0,
+    "longitudeSpan": 0.0
+  },
+  "geoDataExif": {
+    "latitude": 40.7334367,
+    "longitude": -73.5823593,
+    "altitude": -11.199,
+    "latitudeSpan": 0.0,
+    "longitudeSpan": 0.0
+  },
+  "url": "https://photos.google.com/photo/AF1QipP0hOzuu_GfxCloxa_OkApXMJebCY_ia8dxc7Kq",
+  "googlePhotosOrigin": {
+    "mobileUpload": {
+      "deviceFolder": {
+        "localFolderName": ""
+      },
+      "deviceType": "ANDROID_PHONE"
+    }
+  }
+}
