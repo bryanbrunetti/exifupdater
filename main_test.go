@@ -48,6 +48,16 @@ func TestPhotoMetadata_Unmarshal(t *testing.T) {
 		"title": "test.jpg",
 		"photoTakenTime": {
 			"timestamp": "1640995200"
+		},
+		"geoData": {
+			"latitude": 40.7333333,
+			"longitude": -73.58222219999999,
+			"altitude": 0.0
+		},
+		"geoDataExif": {
+			"latitude": 40.7334367,
+			"longitude": -73.5823593,
+			"altitude": -11.199
 		}
 	}`)
 
@@ -63,6 +73,19 @@ func TestPhotoMetadata_Unmarshal(t *testing.T) {
 
 	if meta.PhotoTakenTime.Timestamp != "1640995200" {
 		t.Errorf("Timestamp = %v, want 1640995200", meta.PhotoTakenTime.Timestamp)
+	}
+
+	// Test GPS data parsing
+	if meta.GeoData.Latitude != 40.7333333 {
+		t.Errorf("GeoData.Latitude = %v, want 40.7333333", meta.GeoData.Latitude)
+	}
+
+	if meta.GeoData.Longitude != -73.58222219999999 {
+		t.Errorf("GeoData.Longitude = %v, want -73.58222219999999", meta.GeoData.Longitude)
+	}
+
+	if meta.GeoDataExif.Altitude != -11.199 {
+		t.Errorf("GeoDataExif.Altitude = %v, want -11.199", meta.GeoDataExif.Altitude)
 	}
 }
 

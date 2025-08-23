@@ -68,33 +68,34 @@ EXIF Updater - Multi-mode photo organization tool
 
 🔍 DRY RUN MODE: No files will be modified
 
-UPDATE MODE: Updating EXIF timestamps from JSON metadata...
+UPDATE MODE: Updating EXIF timestamps and GPS data from JSON metadata...
 Found 1,247 JSON files to process
-[DRY RUN] Would update EXIF for /path/to/IMG_1234.jpg
+[DRY RUN] Would update EXIF timestamps for /path/to/IMG_1234.jpg and GPS coordinates (40.733333, -73.582222)
 [DRY RUN] Would delete JSON file /path/to/IMG_1234.jpg.json
-[DRY RUN] Would update EXIF for /path/to/VID_5678.mp4
+[DRY RUN] Would update EXIF timestamps for /path/to/VID_5678.mp4 and GPS coordinates (40.733437, -73.582359, altitude: -11.2m)
 [DRY RUN] Would delete JSON file /path/to/VID_5678.mp4.json
 [==============================] 1247/1247 (100.0%) | Elapsed: 45s
-Update complete! Processed 1,247 JSON files.
+Update complete! Processed 1,247 JSON files with timestamps and GPS coordinates.
 ```
 
 ### Actual Updates
 
 ```bash
-# Update EXIF timestamps from JSON metadata
+# Update EXIF timestamps and GPS coordinates from JSON metadata
 ./exifupdater -update ~/google-takeout
 ```
 
 ### Keep JSON Files
 
 ```bash
-# Update timestamps but preserve the JSON metadata files
+# Update timestamps and GPS coordinates but preserve the JSON metadata files
 ./exifupdater -update --keep-json ~/google-takeout
 ```
 
 ### When to Use Update Mode
 
 - After scanning shows files missing EXIF timestamps
+- When photos are missing GPS location data from Google Photos
 - Before organizing files (sort mode works better with proper timestamps)
 - When you want to fix EXIF data in-place without reorganizing
 
@@ -179,7 +180,7 @@ After running sort mode, you'll get:
 # Step 1: Understand your data
 ./exifupdater -scan ~/google-takeout
 
-# Step 2: Fix missing timestamps (if scan showed issues)
+# Step 2: Fix missing timestamps and GPS coordinates (if scan showed issues)
 ./exifupdater -update --dry-run ~/google-takeout  # Preview first
 ./exifupdater -update --keep-json ~/google-takeout  # Keep JSON for reference
 
@@ -194,7 +195,7 @@ After running sort mode, you'll get:
 # Scan without making changes
 ./exifupdater -scan ~/google-takeout
 
-# Update timestamps but keep JSON files
+# Update timestamps and GPS coordinates but keep JSON files
 ./exifupdater -update --keep-json ~/google-takeout
 
 # Organize by copying (preserve original structure)
@@ -203,7 +204,7 @@ After running sort mode, you'll get:
 
 ### Workflow 3: Quick Organization (Skip Updates)
 
-If your photos already have good EXIF data:
+If your photos already have good EXIF timestamp and GPS data:
 
 ```bash
 # Quick scan to confirm
@@ -228,7 +229,7 @@ If your photos already have good EXIF data:
 ### Multiple Takeout Archives
 
 ```bash
-# Process each archive separately
+# Process each archive separately (updates timestamps and GPS data)
 ./exifupdater -update ~/takeout-2023
 ./exifupdater -update ~/takeout-2024
 

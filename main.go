@@ -18,12 +18,20 @@ import (
 	"time"
 )
 
+type geoData struct {
+	Latitude  float64 `json:"latitude"`
+	Longitude float64 `json:"longitude"`
+	Altitude  float64 `json:"altitude"`
+}
+
 type photoMetadata struct {
 	Title          string `json:"title"`
 	PhotoTakenTime struct {
 		Timestamp string `json:"timestamp"`
 	} `json:"photoTakenTime"`
-	Timestamp string `json:"timestamp"` // Legacy field
+	Timestamp   string  `json:"timestamp"` // Legacy field
+	GeoData     geoData `json:"geoData"`
+	GeoDataExif geoData `json:"geoDataExif"`
 }
 
 // ExifTool represents a persistent exiftool process
@@ -454,7 +462,7 @@ func scanWorker(id int, wg *sync.WaitGroup, jobs <-chan string, results chan<- s
 // UPDATE MODE FUNCTIONS
 
 func performUpdate(sourceDir string, keepJSON, dryRun bool) {
-	fmt.Println("UPDATE MODE: Updating EXIF timestamps from JSON metadata...")
+	fmt.Println("UPDATE MODE: Updating EXIF timestamps and GPS data from JSON metadata...")
 
 	var jsonFiles []string
 	err := filepath.Walk(sourceDir, func(path string, info os.FileInfo, err error) error {
@@ -500,7 +508,7 @@ func performUpdate(sourceDir string, keepJSON, dryRun bool) {
 	wg.Wait()
 	pb.display(int64(totalFiles))
 	fmt.Println()
-	fmt.Printf("Update complete! Processed %d JSON files.\n", totalFiles)
+	fmt.Printf("Update complete! Processed %d JSON files with timestamps and GPS coordinates.\n", totalFiles)
 }
 
 func updateWorker(id int, wg *sync.WaitGroup, jobs <-chan string, keepJSON, dryRun bool, pb *progressBar) {
@@ -560,15 +568,59 @@ func updateWorker(id int, wg *sync.WaitGroup, jobs <-chan string, keepJSON, dryR
 		if !dryRun {
 			t := time.Unix(timestamp, 0)
 			formattedTime := t.Format("2006:01:02 15:04:05")
-			dateTimeArg := fmt.Sprintf("-CreateDate=%s -DateTimeOriginal=%s", formattedTime, formattedTime)
 
-			_, err := et.Execute("-overwrite_original", dateTimeArg, imagePath)
+			// Build command arguments starting with timestamp data
+			args := []string{"-overwrite_original"}
+			dateTimeArg := fmt.Sprintf("-CreateDate=%s", formattedTime)
+			args = append(args, dateTimeArg)
+			dateTimeOrigArg := fmt.Sprintf("-DateTimeOriginal=%s", formattedTime)
+			args = append(args, dateTimeOrigArg)
+
+			// Add GPS data if available
+			var gpsData geoData
+			if meta.GeoDataExif.Latitude != 0 || meta.GeoDataExif.Longitude != 0 {
+				gpsData = meta.GeoDataExif
+			} else if meta.GeoData.Latitude != 0 || meta.GeoData.Longitude != 0 {
+				gpsData = meta.GeoData
+			}
+
+			if gpsData.Latitude != 0 || gpsData.Longitude != 0 {
+				gpsLatArg := fmt.Sprintf("-GPSLatitude=%f", gpsData.Latitude)
+				gpsLonArg := fmt.Sprintf("-GPSLongitude=%f", gpsData.Longitude)
+				args = append(args, gpsLatArg, gpsLonArg)
+
+				if gpsData.Altitude != 0 {
+					gpsAltArg := fmt.Sprintf("-GPSAltitude=%f", gpsData.Altitude)
+					args = append(args, gpsAltArg)
+				}
+			}
+
+			args = append(args, imagePath)
+			_, err := et.Execute(args...)
 			if err != nil {
 				log.Printf("Worker %d: Exiftool command failed for '%s': %v", id, imagePath, err)
 				continue
 			}
 		} else {
-			log.Printf("[DRY RUN] Would update EXIF for %s", imagePath)
+			logMsg := fmt.Sprintf("[DRY RUN] Would update EXIF timestamps for %s", imagePath)
+
+			// Check for GPS data to include in dry run message
+			var gpsData geoData
+			if meta.GeoDataExif.Latitude != 0 || meta.GeoDataExif.Longitude != 0 {
+				gpsData = meta.GeoDataExif
+			} else if meta.GeoData.Latitude != 0 || meta.GeoData.Longitude != 0 {
+				gpsData = meta.GeoData
+			}
+
+			if gpsData.Latitude != 0 || gpsData.Longitude != 0 {
+				logMsg += fmt.Sprintf(" and GPS coordinates (%.6f, %.6f", gpsData.Latitude, gpsData.Longitude)
+				if gpsData.Altitude != 0 {
+					logMsg += fmt.Sprintf(", altitude: %.1fm", gpsData.Altitude)
+				}
+				logMsg += ")"
+			}
+
+			log.Printf(logMsg)
 		}
 
 		if !keepJSON && !dryRun {
@@ -745,7 +797,7 @@ func main() {
 
 	// Mode flags (mutually exclusive)
 	scanMode := flag.Bool("scan", false, "Scan files to report how many are missing EXIF timestamp data")
-	updateMode := flag.Bool("update", false, "Update EXIF timestamps from JSON metadata files")
+	updateMode := flag.Bool("update", false, "Update EXIF timestamps and GPS coordinates from JSON metadata files")
 	sortMode := flag.Bool("sort", false, "Sort files into date-based directory structure with album symlinks")
 
 	// Options
@@ -759,7 +811,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Usage: %s [mode] [options] <source_directory>\n", filepath.Base(os.Args[0]))
 		fmt.Fprintf(os.Stderr, "\nModes (choose exactly one):\n")
 		fmt.Fprintf(os.Stderr, "  -scan    Scan files and report how many are missing EXIF timestamp data\n")
-		fmt.Fprintf(os.Stderr, "  -update  Update EXIF timestamps from JSON metadata files\n")
+		fmt.Fprintf(os.Stderr, "  -update  Update EXIF timestamps and GPS coordinates from JSON metadata files\n")
 		fmt.Fprintf(os.Stderr, "  -sort    Sort files into <year>/<month>/<day> structure with album symlinks\n")
 		fmt.Fprintf(os.Stderr, "\nOptions:\n")
 		flag.PrintDefaults()

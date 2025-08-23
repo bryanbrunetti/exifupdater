@@ -6,7 +6,7 @@ A multi-mode photo organization tool for processing Google Photos Takeout data. 
 
 - **Three distinct modes**: scan, update, and sort for modular workflow
 - **Scan Mode**: Analyze photos to report missing EXIF timestamp data
-- **Update Mode**: Fix missing EXIF timestamps using Google Takeout JSON metadata
+- **Update Mode**: Fix missing EXIF timestamps and GPS coordinates using Google Takeout JSON metadata
 - **Sort Mode**: Organize photos into date-based directories with album symlinks
 - **Parallel Processing**: Multi-worker architecture for efficient batch operations
 - **Progress Tracking**: Real-time progress bars with ETA calculations
@@ -50,7 +50,7 @@ exifupdater [mode] [options] <source_directory>
 ### Modes (choose exactly one)
 
 - `-scan`: Scan files and report how many are missing EXIF timestamp data
-- `-update`: Update EXIF timestamps from JSON metadata files  
+- `-update`: Update EXIF timestamps and GPS coordinates from JSON metadata files
 - `-sort`: Sort files into `<year>/<month>/<day>` structure with album symlinks
 
 ### Options
@@ -88,7 +88,7 @@ Check how many photos are missing EXIF timestamp data:
 
 ### 2. Update Mode - Fix EXIF Timestamps
 
-Update EXIF timestamps from Google Takeout JSON metadata:
+Update EXIF timestamps and GPS coordinates from Google Takeout JSON metadata:
 
 ```bash
 # Preview changes first
@@ -124,7 +124,7 @@ For processing Google Takeout data, use this recommended workflow:
 # 1. First, scan to understand your collection
 ./exifupdater -scan ~/google-takeout
 
-# 2. Update EXIF timestamps (if needed based on scan results)
+# 2. Update EXIF timestamps and GPS coordinates (if needed based on scan results)
 ./exifupdater -update --keep-json ~/google-takeout
 
 # 3. Organize into structured directories
@@ -172,9 +172,9 @@ The sort mode creates this organized structure:
 ### Update Mode
 
 1. Finds all JSON metadata files from Google Takeout
-2. Reads timestamp information from each JSON file
+2. Reads timestamp and GPS location information from each JSON file
 3. Locates corresponding image/video files using smart fallback logic
-4. Updates EXIF timestamps using exiftool
+4. Updates EXIF timestamps and GPS coordinates using exiftool
 5. Optionally removes JSON files after successful processing
 
 ### Sort Mode
@@ -194,6 +194,11 @@ The tool expects Google Takeout JSON files with this structure:
   "title": "IMG_1234.jpg",
   "photoTakenTime": {
     "timestamp": "1640995200"
+  },
+  "geoData": {
+    "latitude": 40.7333333,
+    "longitude": -73.58222219999999,
+    "altitude": 0.0
   }
 }
 ```
