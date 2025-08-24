@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -301,12 +302,7 @@ func isMediaFile(filename string) bool {
 	ext := strings.ToLower(filepath.Ext(filename))
 	mediaExts := []string{".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".heic", ".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v"}
 
-	for _, mediaExt := range mediaExts {
-		if ext == mediaExt {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(mediaExts, ext)
 }
 
 func isMissingTimestamps(et *ExifTool, filePath string) bool {
@@ -723,34 +719,73 @@ func sortWorker(id int, wg *sync.WaitGroup, jobs <-chan string, destDir string, 
 			continue
 		}
 
-		imagePath := findFileWithFallbacks(filepath.Dir(jsonPath), meta.Title)
-		if imagePath == "" {
-			continue
-		}
-
 		timestamp, err := strconv.ParseInt(timestampStr, 10, 64)
 		if err != nil {
 			continue
 		}
 
 		year, month, day := getDateFromTimestamp(timestamp)
-		filename := filepath.Base(imagePath)
 
-		// Create destination path: <dest>/<year>/<month>/<day>/<filename>
-		datePath := filepath.Join(destDir, year, month, day)
-		destPath := filepath.Join(datePath, filename)
+		imagePath := findFileWithFallbacks(filepath.Dir(jsonPath), meta.Title)
+		var filename string
+		var destPath string
+		var fileFoundInDateStructure bool
 
-		// Check if file already exists at destination
-		fileAlreadyExists := false
-		if _, err := os.Stat(destPath); err == nil {
-			fileAlreadyExists = true
-		}
+		if imagePath == "" {
+			// File not found locally, check if it exists in date-based structure
+			filename = meta.Title
+			datePath := filepath.Join(destDir, year, month, day)
+			destPath = filepath.Join(datePath, filename)
 
-		// Move/copy file to date-based structure
-		if !fileAlreadyExists {
-			if err := moveOrCopyFile(imagePath, destPath, dryRun, keepFiles); err != nil {
-				log.Printf("Worker %d: Error moving/copying file %s to %s: %v", id, imagePath, destPath, err)
+			if _, err := os.Stat(destPath); err == nil {
+				fileFoundInDateStructure = true
+			} else {
+				// Try different extensions for the file in date structure
+				baseName := strings.TrimSuffix(filename, filepath.Ext(filename))
+				extensions := []string{".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".heic", ".mp4", ".mov", ".avi", ".mkv"}
+
+				for _, ext := range extensions {
+					variants := []string{
+						baseName + ext,
+						baseName + strings.ToUpper(ext),
+					}
+
+					for _, variant := range variants {
+						testPath := filepath.Join(datePath, variant)
+						if _, err := os.Stat(testPath); err == nil {
+							filename = variant
+							destPath = testPath
+							fileFoundInDateStructure = true
+							break
+						}
+					}
+					if fileFoundInDateStructure {
+						break
+					}
+				}
+			}
+
+			if !fileFoundInDateStructure {
 				continue
+			}
+		} else {
+			// File found locally, proceed with normal flow
+			filename = filepath.Base(imagePath)
+			datePath := filepath.Join(destDir, year, month, day)
+			destPath = filepath.Join(datePath, filename)
+
+			// Check if file already exists at destination
+			fileAlreadyExists := false
+			if _, err := os.Stat(destPath); err == nil {
+				fileAlreadyExists = true
+			}
+
+			// Move/copy file to date-based structure
+			if !fileAlreadyExists {
+				if err := moveOrCopyFile(imagePath, destPath, dryRun, keepFiles); err != nil {
+					log.Printf("Worker %d: Error moving/copying file %s to %s: %v", id, imagePath, destPath, err)
+					continue
+				}
 			}
 		}
 
