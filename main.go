@@ -488,10 +488,11 @@ func performUpdate(sourceDir string, keepJSON, dryRun bool) {
 	numWorkers := runtime.NumCPU()
 	jobs := make(chan string, numWorkers)
 	var wg sync.WaitGroup
+	var updatedFiles int64
 
 	for i := 1; i <= numWorkers; i++ {
 		wg.Add(1)
-		go updateWorker(i, &wg, jobs, keepJSON, dryRun, pb)
+		go updateWorker(i, &wg, jobs, keepJSON, dryRun, pb, &updatedFiles)
 	}
 
 	go func() {
@@ -504,23 +505,21 @@ func performUpdate(sourceDir string, keepJSON, dryRun bool) {
 	wg.Wait()
 	pb.display(int64(totalFiles))
 	fmt.Println()
-	fmt.Printf("Update complete! Processed %d JSON files with timestamps and GPS coordinates.\n", totalFiles)
+	fmt.Printf("Update complete! Processed %d JSON files, updated %d files that were missing date information.\n", totalFiles, atomic.LoadInt64(&updatedFiles))
 }
 
-func updateWorker(id int, wg *sync.WaitGroup, jobs <-chan string, keepJSON, dryRun bool, pb *progressBar) {
+func updateWorker(id int, wg *sync.WaitGroup, jobs <-chan string, keepJSON, dryRun bool, pb *progressBar, updatedFiles *int64) {
 	defer wg.Done()
 
 	var et *ExifTool
 	var err error
 
-	if !dryRun {
-		et, err = NewExifTool()
-		if err != nil {
-			log.Printf("Worker %d: Failed to start exiftool: %v", id, err)
-			return
-		}
-		defer et.Close()
+	et, err = NewExifTool()
+	if err != nil {
+		log.Printf("Worker %d: Failed to start exiftool: %v", id, err)
+		return
 	}
+	defer et.Close()
 
 	for jsonPath := range jobs {
 		file, err := os.Open(jsonPath)
@@ -553,6 +552,15 @@ func updateWorker(id int, wg *sync.WaitGroup, jobs <-chan string, keepJSON, dryR
 
 		imagePath := findFileWithFallbacks(filepath.Dir(jsonPath), meta.Title)
 		if imagePath == "" {
+			continue
+		}
+
+		// Only update files that are missing ALL date information
+		if !isMissingTimestamps(et, imagePath) {
+			if dryRun {
+				log.Printf("[DRY RUN] Skipping %s - already has date information", imagePath)
+			}
+			pb.update()
 			continue
 		}
 
@@ -618,6 +626,9 @@ func updateWorker(id int, wg *sync.WaitGroup, jobs <-chan string, keepJSON, dryR
 
 			log.Printf(logMsg)
 		}
+
+		// Track files that were actually updated (or would be updated in dry-run)
+		atomic.AddInt64(updatedFiles, 1)
 
 		if !keepJSON && !dryRun {
 			if err := os.Remove(jsonPath); err != nil {
